@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>원가구성 비교 분석 도구</title>
+<script src="lib/xlsx.full.min.js"></script>
+<script src="lib/jszip.min.js"></script>
+<script src="lib/echarts.min.js"></script>
+<script src="lib/pdf.min.js"></script>
+<script src="app.js"></script>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --border: #e5e7eb; --text: #1f2937;
+    --muted: #6b7280; --primary: #2563eb; --danger: #dc2626; --ok: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  header { background: #111827; color: #fff; padding: 14px 24px; }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 4px 0 0; font-size: 12px; color: #9ca3af; }
+  .layout { display: flex; gap: 16px; padding: 16px; align-items: flex-start; }
+  .sidebar { width: 260px; flex-shrink: 0; }
+  .main { flex: 1; min-width: 0; }
+  .card { background: var(--card); border: 1px solid var(--border);
+          border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; padding-bottom: 8px;
+             border-bottom: 1px solid var(--border); }
+  .card h3 { font-size: 13px; margin: 14px 0 8px; color: var(--muted); }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+  select, input[type=text], input[type=number] {
+    width: 100%; padding: 6px 8px; border: 1px solid var(--border);
+    border-radius: 6px; font-size: 13px; background: #fff; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  button { padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px;
+           background: #fff; cursor: pointer; font-size: 13px; }
+  button:hover { background: #f3f4f6; }
+  button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  button.primary:hover { background: #1d4ed8; }
+  button.danger { color: var(--danger); }
+  .check { display: flex; align-items: center; gap: 6px; margin: 6px 0; font-size: 13px; }
+  .check input { width: auto; }
+  .dropzone { border: 2px dashed var(--border); border-radius: 8px; padding: 24px;
+              text-align: center; color: var(--muted); cursor: pointer; transition: .15s; }
+  .dropzone:hover, .dropzone.drag { border-color: var(--primary); background: #eff6ff; }
+  .filelist { margin-top: 12px; }
+  .fileitem { display: flex; justify-content: space-between; align-items: center;
+              padding: 8px; border: 1px solid var(--border); border-radius: 6px;
+              margin-bottom: 6px; font-size: 13px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+  .badge.ok { background: #dcfce7; color: #166534; }
+  .badge.err { background: #fee2e2; color: #991b1b; }
+  .badge.ocr { background: #fef3c7; color: #92400e; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+  th { background: #f9fafb; position: sticky; top: 0; font-weight: 600; }
+  .tablewrap { max-height: 420px; overflow: auto; border: 1px solid var(--border);
+               border-radius: 6px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .conf { font-size: 11px; padding: 1px 6px; border-radius: 8px; }
+  .conf.hi { background: #dcfce7; color: #166534; }
+  .conf.mid { background: #fef3c7; color: #92400e; }
+  .conf.lo { background: #fee2e2; color: #991b1b; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .warn { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e;
+          padding: 8px 12px; border-radius: 6px; font-size: 12px; margin: 8px 0; }
+  .ok-msg { background: #dcfce7; border: 1px solid #86efac; color: #166534;
+            padding: 8px 12px; border-radius: 6px; font-size: 12px; margin: 8px 0; }
+  #chart { width: 100%; height: 560px; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .pill { font-size: 11px; padding: 3px 10px; border-radius: 12px;
+          background: #eff6ff; color: #1e40af; }
+  .footer { text-align: center; color: var(--muted); font-size: 12px; padding: 16px; }
+  .hidden { display: none; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .layout { flex-direction: column; } .sidebar { width: 100%; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 원가구성 비교 분석 도구</h1>
+  <p>Excel/PDF 견적서 업로드 → 자동 분류 → 원가구성 비교 차트 &nbsp;|&nbsp; 🔒 모든 데이터는 이 브라우저 안에서만 처리됩니다 (외부 전송 없음)</p>
+</header>
+
+<div class="layout">
+  <!-- ─── 사이드바: 설정 ─── -->
+  <div class="sidebar">
+    <div class="card">
+      <h2>⚙️ 설정</h2>
+      <label>표시 단위</label>
+      <select id="setUnit">
+        <option>원</option><option>천원</option>
+        <option selected>백만원</option><option>억원</option>
+      </select>
+      <label>소수점 자릿수</label>
+      <input type="number" id="setDecimals" min="0" max="4" value="1">
+      <label>사급품 처리</label>
+      <select id="setSupply"></select>
+
+      <h3>차트 옵션</h3>
+      <div class="check"><input type="checkbox" id="optMatRate" checked><label for="optMatRate" style="margin:0">재료비율 추세선</label></div>
+      <div class="check"><input type="checkbox" id="optConn" checked><label for="optConn" style="margin:0">비교안 연결선</label></div>
+      <div class="check"><input type="checkbox" id="optDelta" checked><label for="optDelta" style="margin:0">증감 Callout</label></div>
+      <div class="check"><input type="checkbox" id="optSupply" checked><label for="optSupply" style="margin:0">사급품 표시</label></div>
+      <div class="check"><input type="checkbox" id="optUncl" checked><label for="optUncl" style="margin:0">미분류 표시</label></div>
+
+      <h3>강조 비교안</h3>
+      <select id="setHighlight"></select>
+    </div>
+  </div>
+
+  <!-- ─── 메인 ─── -->
+  <div class="main">
+    <!-- 1. 업로드 -->
+    <div class="card">
+      <h2>1. 파일 업로드</h2>
+      <div class="dropzone" id="dropzone">
+        📁 견적 파일을 클릭해서 선택하거나 끌어다 놓으세요<br>
+        <span class="muted">Excel: .xlsx, .xls &nbsp;|&nbsp; PDF: .pdf (텍스트형/스캔형)</span>
+      </div>
+      <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.pdf" class="hidden">
+      <div class="row" style="margin-top:12px; align-items:center">
+        <button class="primary" id="btnAnalyze" style="font-size:15px; padding:10px 28px;">▶ 분석 시작</button>
+        <span class="muted" id="analyzeHint">파일을 업로드한 뒤 [분석 시작]을 누르면 원가구성 차트가 표시됩니다.</span>
+      </div>
+      <div id="analyzeProgress" style="display:none; margin-top:8px; max-width:280px;">
+        <div style="height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden;">
+          <div id="analyzeProgressBar" style="height:100%; width:0%; background:var(--primary); transition:width .15s ease;"></div>
+        </div>
+        <div id="analyzeProgressLabel" style="font-size:11px; color:var(--muted); margin-top:2px;">분석 중...</div>
+      </div>
+      <div class="filelist" id="fileList"></div>
+      <div id="totalCheck"></div>
+    </div>
+
+    <!-- 2. 비교안 관리 (파일명 기반 자동 매핑으로 대체됨) -->
+    <div class="card" style="display:none">
+      <h2>2. 비교안 관리</h2>
+      <div class="row">
+        <div><label>새 비교안 이름</label><input type="text" id="newScenName" placeholder="예: 2차 견적가"></div>
+        <div style="flex:0 0 auto; align-self:flex-end"><button class="primary" id="btnAddScen">➕ 추가</button></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div><label>삭제할 비교안</label><select id="delScen"></select></div>
+        <div style="flex:0 0 auto; align-self:flex-end"><button class="danger" id="btnDelScen">🗑️ 삭제</button></div>
+      </div>
+      <h3>파일 → 비교안 매핑</h3>
+      <div id="fileMapping"></div>
+    </div>
+
+    <!-- 3. 견적 항목 -->
+    <div class="card">
+      <h2>2. 견적 항목 및 분류 검토</h2>
+      <div class="row">
+        <div><label>필터</label>
+          <select id="filterMode">
+            <option>전체</option><option>미분류</option>
+            <option>낮은 신뢰도 (&lt;70%)</option><option>수정됨</option>
+          </select>
+        </div>
+        <div><label>분류 필터</label><select id="filterCat"></select></div>
+        <div><label>비교안 필터</label><select id="filterScen"></select></div>
+      </div>
+      <div class="tablewrap" style="margin-top:10px">
+        <table id="itemsTable">
+          <thead><tr>
+            <th>비교안</th><th>파일</th><th>행</th><th>품명</th><th>사양</th>
+            <th class="num">수량</th><th class="num">단가</th><th class="num">금액</th>
+            <th>자동분류</th><th>신뢰도</th><th>최종분류</th><th>수정</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="muted" id="itemsCount"></p>
+    </div>
+
+    <!-- 4. 집계표 -->
+    <div class="card">
+      <h2>3. 비용 집계표</h2>
+      <div class="tablewrap" style="max-height:340px">
+        <table id="summaryTable">
+          <thead><tr id="summaryHead"></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="validationIssues"></div>
+    </div>
+
+    <!-- 5. 차트 (2단계) -->
+    <div class="card">
+      <h2>4. 원가구성 비교 차트</h2>
+      <div class="toolbar">
+        <span class="pill" id="chartMeta"></span>
+        <button id="btnSavePng1">📷 1차 차트 PNG</button>
+        <button id="btnSavePng2a">📷 재료비 차트 PNG</button>
+        <button id="btnSavePng2b">📷 인건비 차트 PNG</button>
+      </div>
+
+      <h3>① 1차: 비용 그룹 비교 (재료비 / 인건비 / 기업이윤 / 기타)</h3>
+      <div id="chart1" style="width:100%; height:420px;"></div>
+
+      <h3 style="margin-top:20px">② 2차: 재료비 세부 항목</h3>
+      <div id="chart2a" style="width:100%; height:380px;"></div>
+
+      <h3 style="margin-top:20px">③ 2차: 인건비 세부 항목</h3>
+      <div id="chart2b" style="width:100%; height:380px;"></div>
+    </div>
+
+    <!-- 6. 내보내기 -->
+    <div class="card">
+      <h2>5. 결과 내보내기</h2>
+      <div class="toolbar">
+        <button id="btnExpItems">📄 견적항목 Excel</button>
+        <button id="btnExpSummary">📊 집계표 Excel</button>
+        <button id="btnExpDelta">📈 증감분석 Excel</button>
+        <button id="btnExpRules">📖 분류 규칙 Excel</button>
+        <button id="btnExpChart">📊 차트+Raw data Excel</button>
+      </div>
+    </div>
+
+    <!-- 7. 규칙 관리 -->
+    <div class="card">
+      <h2>6. 분류 규칙 관리</h2>
+      <p class="muted">분류를 수정하면 품명 키워드가 자동으로 규칙으로 학습됩니다. 로컬 브라우저에 저장됩니다.</p>
+      <div class="tablewrap" style="max-height:200px">
+        <table id="rulesTable">
+          <thead><tr><th>키워드</th><th>분류</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div><label>키워드</label><input type="text" id="ruleKw"></div>
+        <div><label>분류</label><select id="ruleCat"></select></div>
+        <div style="flex:0 0 auto; align-self:flex-end"><button class="primary" id="btnAddRule">➕ 추가</button></div>
+      </div>
+    </div>
+
+    <div class="footer">🔒 로컬 브라우저 처리 · 외부 전송 없음 · <span id="footerTime"></span></div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+ * UI 컨트롤러
+ * ============================================================ */
+pdfjsLib.GlobalWorkerOptions.workerSrc = "lib/pdf.worker.min.js";
+
+const QA = window.QA;
+const state = {
+  files: {},          // {file_id: {id, name, type, items, originalTotal, extractedTotal, taxAmount, isScanned, error, scenario}}
+  fileOrder: [],      // 업로드 순서 (file_id 배열)
+  analyzed: false,    // [분석 시작] 클릭 여부
+  userRules: QA.loadRules(),
+  highlight: "",
+};
+
+const $ = id => document.getElementById(id);
+
+// ─── 초기 설정 채우기 ────────────────────────────────────────
+function initSettings() {
+  const supplySel = $("setSupply");
+  QA.SUPPLY_OPTIONS.forEach(o => supplySel.add(new Option(o, o)));
+  const catSel = $("filterCat");
+  catSel.add(new Option("전체", "전체"));
+  QA.COST_CATEGORIES.forEach(c => catSel.add(new Option(c, c)));
+  const ruleCat = $("ruleCat");
+  QA.COST_CATEGORIES.forEach(c => ruleCat.add(new Option(c, c)));
+  $("footerTime").textContent = new Date().toLocaleString("ko-KR");
+}
+
+// ─── 파일 업로드 ─────────────────────────────────────────────
+async function handleFiles(fileList) {
+  for (const file of fileList) {
+    const id = "file_" + Math.random().toString(36).slice(2, 10);
+    const ext = file.name.split(".").pop().toLowerCase();
+    // 비교안 이름 = 파일명(확장자 제외), 업로드 순서대로 배치
+    const baseName = file.name.replace(/\.[^.]+$/, "").replace(/_/g, " ");
+    const existing = state.fileOrder.map(fid => state.files[fid]?.scenario).filter(Boolean);
+    let scenario = baseName, n = 2;
+    while (existing.includes(scenario)) scenario = `${baseName} (${n++})`;
+    const entry = { id, name: file.name, type: ext, items: [], error: "", isScanned: false, scenario };
+    try {
+      if (ext === "xlsx" || ext === "xls") {
+        const buf = await file.arrayBuffer();
+        entry.buf = buf; // 원본 버퍼 보존 (견적항목 내보내기 시 원본에 분류 기록)
+        const wb = XLSX.read(buf, { type: "array" });
+        const sheetName = wb.SheetNames[0];
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: null });
+        const res = QA.parseExcelSheet(rows, file.name, sheetName, "견적가");
+        if (res.error) { entry.error = res.error; }
+        else {
+          entry.items = res.items; entry.originalTotal = res.originalTotal;
+          entry.extractedTotal = res.extractedTotal; entry.taxAmount = res.taxAmount;
+          entry.sheet = sheetName;
+        }
+      } else if (ext === "pdf") {
+        const buf = await file.arrayBuffer();
+        const res = await QA.parsePDF(buf, file.name, "견적가");
+        entry.items = res.items; entry.originalTotal = res.originalTotal;
+        entry.extractedTotal = res.extractedTotal; entry.taxAmount = res.taxAmount;
+        entry.isScanned = res.isScanned;
+        if (res.isScanned) entry.error = "스캔형 PDF입니다. 텍스트가 거의 없어 추출이 어려울 수 있습니다.";
+      } else {
+        entry.error = "지원하지 않는 형식: ." + ext;
+      }
+    } catch (e) {
+      entry.error = "파싱 실패: " + e.message;
+    }
+    // 자동 분류 + 시나리오(파일명) 할당
+    entry.items.forEach(it => {
+      it.scenario = entry.scenario;
+      const r = QA.classifyItem(it, state.userRules);
+      it.auto_category = r.category; it.confidence = r.confidence;
+      it.keywords = r.keywords; it.reason = r.reason; it.final_category = r.category;
+    });
+    state.files[id] = entry;
+    state.fileOrder.push(id);
+  }
+  // 새 파일 업로드 시 분석 초기화 (다시 [분석 시작] 필요)
+  state.analyzed = false;
+  renderAll();
+}
+
+// ─── 비교안 집계 (업로드 순서, 파일명 기반) ──────────────────
+function getScenarios() {
+  const supply = $("setSupply").value;
+  // 업로드 순서대로 고유 시나리오명 추출
+  const names = [];
+  state.fileOrder.forEach(fid => {
+    const f = state.files[fid];
+    if (f && !names.includes(f.scenario)) names.push(f.scenario);
+  });
+  return names.map(name => {
+    const items = Object.values(state.files)
+      .filter(f => f.scenario === name)
+      .flatMap(f => f.items);
+    return QA.aggregateScenario(name, items, supply);
+  });
+}
+
+// ─── 렌더링 ──────────────────────────────────────────────────
+function scenarioNames() {
+  const names = [];
+  state.fileOrder.forEach(fid => {
+    const f = state.files[fid];
+    if (f && !names.includes(f.scenario)) names.push(f.scenario);
+  });
+  return names;
+}
+
+function renderAll() {
+  renderScenarioSelects();
+  renderFileList();
+  renderRules();
+  if (state.analyzed) {
+    renderItemsTable();
+    renderSummary();
+    renderChart();
+    renderValidation();
+  } else {
+    // 분석 전: 결과 영역 비우기
+    const itb = document.querySelector("#itemsTable tbody"); if (itb) itb.innerHTML = "";
+    const ic = $("itemsCount"); if (ic) ic.textContent = "[분석 시작]을 누르면 항목이 표시됩니다.";
+    const stb = document.querySelector("#summaryTable tbody"); if (stb) stb.innerHTML = "";
+    const sh = $("summaryHead"); if (sh) sh.innerHTML = "";
+    const vm = $("chartMeta"); if (vm) vm.textContent = "";
+    const vi = $("validationIssues"); if (vi) vi.innerHTML = "";
+    if (chart1Instance) chart1Instance.clear();
+    if (chart2aRef.current) chart2aRef.current.clear();
+    if (chart2bRef.current) chart2bRef.current.clear();
+  }
+}
+
+function renderScenarioSelects() {
+  const names = scenarioNames();
+  const hl = $("setHighlight"), del = $("delScen"), fscen = $("filterScen");
+  const curHl = hl.value, curDel = del.value, curF = fscen.value;
+  hl.innerHTML = ""; del.innerHTML = "";
+  names.forEach(s => { hl.add(new Option(s, s)); del.add(new Option(s, s)); });
+  fscen.innerHTML = '<option>전체</option>';
+  names.forEach(s => fscen.add(new Option(s, s)));
+  hl.value = names.includes(curHl) ? curHl : (names[0] || "");
+  del.value = names.includes(curDel) ? curDel : (names[0] || "");
+  fscen.value = fscen.querySelector(`option[value="${curF}"]`) ? curF : "전체";
+  state.highlight = hl.value;
+}
+
+function renderFileList() {
+  const list = $("fileList"); list.innerHTML = "";
+  const check = $("totalCheck"); check.innerHTML = "";
+  Object.values(state.files).forEach(f => {
+    const div = document.createElement("div");
+    div.className = "fileitem";
+    let badge = f.error ? `<span class="badge err">오류</span>`
+              : f.isScanned ? `<span class="badge ocr">OCR 필요</span>`
+              : `<span class="badge ok">완료</span>`;
+    div.innerHTML = `<span>${badge} <b>${f.name}</b> <span class="muted">(${f.items.length}개 항목)</span></span>
+      <button class="danger" data-del="${f.id}">✕</button>`;
+    list.appendChild(div);
+    if (f.error) {
+      const w = document.createElement("div");
+      w.className = "warn"; w.style.margin = "0 0 6px 12px";
+      w.textContent = f.error; list.appendChild(w);
+    }
+    if (f.originalTotal > 0) {
+      const diff = f.originalTotal - f.extractedTotal;
+      const tol = Math.max(1, f.originalTotal * 0.0001);
+      const ok = Math.abs(diff) <= tol;
+      const pct = (Math.abs(diff) / f.originalTotal * 100).toFixed(3);
+      const m = document.createElement("div");
+      m.className = ok ? "ok-msg" : "warn"; m.style.margin = "0 0 6px 12px";
+      m.textContent = ok
+        ? `✅ ${f.name}: 총합계 대조 일치 (원본 ${f.originalTotal.toLocaleString()} / 추출 ${f.extractedTotal.toLocaleString()})`
+        : `⚠️ ${f.name}: 총합계 불일치 - 원본 ${f.originalTotal.toLocaleString()} / 추출 ${f.extractedTotal.toLocaleString()} (차이 ${diff.toLocaleString()}, ${pct}%)`;
+      list.appendChild(m);
+    }
+  });
+  list.querySelectorAll("[data-del]").forEach(b => b.onclick = () => {
+    delete state.files[b.dataset.del];
+    state.fileOrder = state.fileOrder.filter(fid => fid !== b.dataset.del);
+    state.analyzed = false;
+    renderAll();
+  });
+}
+
+function renderItemsTable() {
+  const tbody = document.querySelector("#itemsTable tbody");
+  const allItems = Object.values(state.files).flatMap(f => f.items);
+  const mode = $("filterMode").value, cat = $("filterCat").value, scen = $("filterScen").value;
+  let filtered = allItems;
+  if (mode === "미분류") filtered = filtered.filter(i => i.final_category === "미분류");
+  else if (mode === "낮은 신뢰도 (<70%)") filtered = filtered.filter(i => i.confidence < 70);
+  else if (mode === "수정됨") filtered = filtered.filter(i => i.is_modified);
+  if (cat !== "전체") filtered = filtered.filter(i => i.final_category === cat);
+  if (scen !== "전체") filtered = filtered.filter(i => i.scenario === scen);
+ 
+  // HTML 문자열로 한 번에 생성 (select 대신 텍스트 표시, 클릭 시 select 생성)
+  const rowsHtml = filtered.map(it => {
+    const confCls = it.confidence >= 90 ? "hi" : it.confidence >= 70 ? "mid" : "lo";
+    return `<tr data-row="${it.source_row}" data-scen="${it.scenario}">
+      <td>${it.scenario}</td><td class="muted">${it.source_file.slice(0,14)}</td>
+      <td>${it.source_row}</td><td>${it.name}</td><td class="muted">${it.spec}</td>
+      <td class="num">${it.quantity}</td><td class="num">${it.unit_price ? it.unit_price.toLocaleString() : ""}</td>
+      <td class="num">${it.amount.toLocaleString()}</td>
+      <td>${it.auto_category}</td>
+      <td><span class="conf ${confCls}">${Math.round(it.confidence)}%</span></td>
+      <td class="cat-cell" style="cursor:pointer">${it.final_category}</td>
+      <td>${it.is_modified ? "✅" : ""}</td></tr>`;
+  }).join("");
+  tbody.innerHTML = rowsHtml;
+  
+  // 이벤트 위임으로 셀 클릭 시 select 생성 (한 번만 등록)
+  if (!tbody.__clickHandlerAttached) {
+    tbody.__clickHandlerAttached = true;
+    tbody.addEventListener("click", e => {
+      const cell = e.target.closest(".cat-cell");
+      if (!cell) return;
+      const tr = cell.closest("tr");
+      const s = tr.dataset.scen, row = parseInt(tr.dataset.row);
+      const items = Object.values(state.files).flatMap(f => f.items);
+      const it = items.find(i => i.scenario === s && i.source_row === row);
+      if (!it) return;
+      
+      // select 생성
+      const cats = QA.COST_CATEGORIES;
+      const sel = document.createElement("select");
+      sel.style.fontSize = "12px";
+      cats.forEach(c => sel.add(new Option(c, c)));
+      sel.value = it.final_category;
+      cell.textContent = "";
+      cell.appendChild(sel);
+      sel.focus();
+      
+      sel.onchange = () => {
+        it.final_category = sel.value; it.is_modified = true;
+        const kw = QA.learnFromCorrection(it.name, it.spec, sel.value);
+        if (kw) { state.userRules = QA.loadRules(); }
+        renderAll();
+      };
+      sel.onblur = () => {
+        // blur 시 select 제거, 텍스트로 복원
+        setTimeout(() => {
+          if (!sel.contains(document.activeElement)) {
+            cell.textContent = it.final_category;
+          }
+        }, 100);
+      };
+    });
+  }
+  
+  $("itemsCount").textContent = `총 ${allItems.length}개 항목 중 ${filtered.length}개 표시`;
+}
+
+function renderSummary() {
+  const scenarios = getScenarios();
+  const head = $("summaryHead");
+  head.innerHTML = "<th>비교안</th>" + QA.COST_CATEGORIES.map(c => `<th class="num">${c}</th>`).join("")
+    + "<th class='num'>총 견적금액</th><th class='num'>분석 원가</th><th class='num'>재료비율(%)</th>";
+  const tbody = document.querySelector("#summaryTable tbody");
+  tbody.innerHTML = "";
+  scenarios.forEach(s => {
+    const tr = document.createElement("tr");
+    if (s.name === state.highlight) tr.style.background = "#fef2f2";
+    tr.innerHTML = `<td><b>${s.name}</b></td>` +
+      QA.COST_CATEGORIES.map(c => `<td class="num">${(s.categoryTotals[c]||0).toLocaleString()}</td>`).join("") +
+      `<td class="num"><b>${s.totalAmount.toLocaleString()}</b></td>
+       <td class="num">${s.analysisCost.toLocaleString()}</td>
+       <td class="num">${s.materialRate.toFixed(1)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderValidation() {
+  const wrap = $("validationIssues"); wrap.innerHTML = "";
+  const issues = [];
+  Object.values(state.files).forEach(f => {
+    if (f.originalTotal > 0) {
+      const diff = Math.abs(f.originalTotal - f.extractedTotal);
+      const tol = Math.max(1, f.originalTotal * 0.0001);
+      if (diff > tol) issues.push(`⚠️ ${f.name}: 원본/추출 합계 차이 ${diff.toLocaleString()}`);
+    }
+  });
+  const uncl = Object.values(state.files).flatMap(f => f.items).filter(i => i.final_category === "미분류");
+  if (uncl.length) issues.push(`⚠️ 미분류 항목 ${uncl.length}개 - 분류 검토 필요`);
+  if (issues.length) {
+    wrap.innerHTML = issues.map(i => `<div class="warn">${i}</div>`).join("");
+  }
+}
+
+function renderRules() {
+  const tbody = document.querySelector("#rulesTable tbody");
+  tbody.innerHTML = "";
+  const rules = QA.loadRules();
+  Object.entries(rules).forEach(([kw, cat]) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${kw}</td><td>${cat}</td>
+      <td><button class="danger" data-rdel="${kw}">✕</button></td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll("[data-rdel]").forEach(b => b.onclick = () => {
+    const rules = QA.loadRules(); delete rules[b.dataset.rdel];
+    QA.saveRules(rules); state.userRules = rules; renderRules();
+  });
+}
+
+// ─── ECharts 차트 (2단계) ────────────────────────────────────
+let chart1Instance = null;
+const chart2aRef = { current: null }, chart2bRef = { current: null };
+
+function renderChart() {
+  const scenarios = getScenarios();
+  const unit = $("setUnit").value, decimals = parseInt($("setDecimals").value) || 0;
+  const showConn = $("optConn").checked;
+  const showMat = $("optMatRate").checked;
+  const showDelta = $("optDelta").checked;
+  const showSupply = $("optSupply").checked;
+  const showUncl = $("optUncl").checked;
+
+  const xLabels = scenarios.map(s => s.name);
+  const divisor = QA.AMOUNT_UNITS[unit];
+  const toUnit = v => v / divisor;
+  const hlIdx = xLabels.indexOf(state.highlight);
+  const hasData = scenarios.some(s => s.totalAmount > 0);
+  const n = scenarios.length;
+
+  // ── 1차 차트: 비용 그룹 (재료비/인건비/기업이윤/기타) ──
+  const groups = QA.GROUP_NAMES;
+  const groupData = scenarios.map(s => QA.groupTotals(s.categoryTotals));
+  const maxGroupTotal = Math.max(...scenarios.map(s =>
+    groups.reduce((sum, g) => sum + (groupData[scenarios.indexOf(s)][g] || 0) / divisor, 0)
+  ), 1);
+
+  const g1Series = groups.map(g => ({
+    name: g, type: "bar", stack: "total",
+    emphasis: { focus: "series" },
+    itemStyle: { color: QA.GROUP_COLORS[g] },
+    label: {
+      show: true, position: "inside", fontSize: 11, color: "#fff", fontWeight: "bold",
+      formatter: p => {
+        const raw = p.value * divisor; // p.value는 이미 표시단위 → 원으로 환원
+        if (raw <= 0) return "";
+        const total = scenarios[p.dataIndex].totalAmount || 1;
+        const ratio = (raw / total * 100);
+        return `${QA.formatAmount(raw, unit, decimals)} (${ratio.toFixed(1)}%)`;
+      },
+    },
+    data: scenarios.map((s, i) => {
+      const val = toUnit(groupData[i][g] || 0);
+      if (i === hlIdx) {
+        return { value: val, itemStyle: { color: QA.GROUP_COLORS[g], borderColor: "#DC2626", borderWidth: 0.67 } };
+      }
+      return val;
+    }),
+  }));
+
+  // 1차 연결선
+  if (showConn && hasData && n >= 2) {
+    const connData = [];
+    groups.forEach(g => {
+      const tb = scenarios.map((s, i) => {
+        let cum = 0;
+        for (const gg of groups) { if (gg === g) break; cum += toUnit(groupData[i][gg] || 0); }
+        return cum + toUnit(groupData[i][g] || 0);
+      });
+      for (let i = 0; i < tb.length - 1; i++) {
+        connData.push([
+          { coord: [i, tb[i]], lineStyle: { color: "#D1D5DB", width: 1, type: "dashed" } },
+          { coord: [i + 1, tb[i + 1]] },
+        ]);
+      }
+    });
+    g1Series[0].markLine = { symbol: "none", silent: true, data: connData, label: { show: false } };
+  }
+
+  // 1차 KPI
+  const cw1 = $("chart1").clientWidth || 800;
+  const plotW1 = cw1 - 120;
+  const kpiLabels1 = scenarios.map((s, i) => ({
+    type: "text",
+    left: 60 + (i + 0.5) * plotW1 / n,
+    top: 8,
+    style: {
+      text: `총액 ${QA.formatAmount(s.totalAmount, unit, decimals)}\n재료비율 ${s.materialRate.toFixed(1)}%`,
+      fill: s.name === state.highlight ? "#DC2626" : "#374151",
+      fontSize: s.name === state.highlight ? 12 : 11,
+      fontWeight: s.name === state.highlight ? "bold" : "normal",
+      align: "center",
+    },
+  }));
+
+  const opt1 = {
+    tooltip: {
+      trigger: "axis", axisPointer: { type: "shadow" },
+      formatter: params => {
+        const idx = params[0].dataIndex;
+        const s = scenarios[idx];
+        let html = `<b>${s.name}</b><br>`;
+        params.filter(p => p.seriesType === "bar").forEach(p => {
+          const ratio = (p.value * divisor / (s.totalAmount || 1) * 100).toFixed(1);
+          html += `${p.marker} ${p.seriesName}: ${QA.formatAmount(p.value * divisor, unit, decimals)} (${ratio}%)<br>`;
+        });
+        html += `<br>총액: ${QA.formatAmount(s.totalAmount, unit, decimals)}<br>재료비율: ${s.materialRate.toFixed(1)}%`;
+        return html;
+      },
+    },
+    legend: { top: 30 },
+    grid: { left: 60, right: 60, top: 125, bottom: 40 },
+    xAxis: { type: "category", data: xLabels, axisLabel: { fontSize: 12 } },
+    yAxis: { type: "value", name: `금액 (${unit})`, max: maxGroupTotal * 1.35 },
+    series: g1Series,
+    graphic: kpiLabels1,
+  };
+
+  if (!chart1Instance) chart1Instance = echarts.init($("chart1"));
+  chart1Instance.setOption(opt1, true);
+
+  // ── 2차 차트 헬퍼: 1차와 동일한 스택 누적 형태 (X축=비교안) ──
+  function renderDetailChart(elId, instanceRef, groupName, cats) {
+    const maxVal = Math.max(...scenarios.map(s =>
+      cats.reduce((sum, c) => sum + (s.categoryTotals[c] || 0) / divisor, 0)
+    ), 1);
+
+    // 각 세부 항목 = 1개 series (스택)
+    const series = cats.map(cat => ({
+      name: cat, type: "bar", stack: "total",
+      emphasis: { focus: "series" },
+      itemStyle: { color: QA.CATEGORY_COLORS[cat] },
+      label: {
+        show: true, position: "inside", fontSize: 9, color: "#fff",
+        formatter: p => {
+          const raw = p.value * divisor; // p.value는 이미 표시단위 → 원으로 환원
+          if (raw <= 0) return "";
+          const total = scenarios[p.dataIndex].totalAmount || 1;
+          const ratio = (raw / total * 100);
+          return raw / divisor > (maxVal * 0.05)
+            ? `${QA.formatAmount(raw, unit, decimals)} (${ratio.toFixed(1)}%)`
+            : QA.formatAmount(raw, unit, decimals);
+        },
+      },
+      data: scenarios.map((s, i) => {
+        const val = toUnit(s.categoryTotals[cat] || 0);
+        if (i === hlIdx) {
+          return { value: val, itemStyle: { color: QA.CATEGORY_COLORS[cat], borderColor: "#DC2626", borderWidth: 0.67 } };
+        }
+        return val;
+      }),
+    }));
+
+    // 연결선
+    if (showConn && hasData && n >= 2) {
+      const connData = [];
+      cats.forEach(cat => {
+        const tb = scenarios.map(s => {
+          let cum = 0;
+          for (const c of cats) { if (c === cat) break; cum += toUnit(s.categoryTotals[c] || 0); }
+          return cum + toUnit(s.categoryTotals[cat] || 0);
+        });
+        for (let i = 0; i < tb.length - 1; i++) {
+          connData.push([
+            { coord: [i, tb[i]], lineStyle: { color: "#D1D5DB", width: 1, type: "dashed" } },
+            { coord: [i + 1, tb[i + 1]] },
+          ]);
+        }
+      });
+      series[0].markLine = { symbol: "none", silent: true, data: connData, label: { show: false } };
+    }
+
+    // KPI 라벨
+    const cw = $(elId).clientWidth || 800;
+    const plotW = cw - 120;
+    const kpiLabels = scenarios.map((s, i) => {
+      const groupSum = cats.reduce((sum, c) => sum + (s.categoryTotals[c] || 0), 0);
+      return {
+        type: "text",
+        left: 60 + (i + 0.5) * plotW / n,
+        top: 8,
+        style: {
+          text: `${groupName} ${QA.formatAmount(groupSum, unit, decimals)}`,
+          fill: s.name === state.highlight ? "#DC2626" : "#374151",
+          fontSize: s.name === state.highlight ? 12 : 11,
+          fontWeight: s.name === state.highlight ? "bold" : "normal",
+          align: "center",
+        },
+      };
+    });
+
+    const option = {
+      tooltip: {
+        trigger: "axis", axisPointer: { type: "shadow" },
+        formatter: params => {
+          const idx = params[0].dataIndex;
+          const s = scenarios[idx];
+          let html = `<b>${s.name}</b> — ${groupName}<br>`;
+          params.filter(p => p.seriesType === "bar").forEach(p => {
+            const ratio = (p.value * divisor / (s.totalAmount || 1) * 100).toFixed(1);
+            html += `${p.marker} ${p.seriesName}: ${QA.formatAmount(p.value * divisor, unit, decimals)} (${ratio}%)<br>`;
+          });
+          const groupSum = cats.reduce((sum, c) => sum + (s.categoryTotals[c] || 0), 0);
+          html += `<br>${groupName} 합계: ${QA.formatAmount(groupSum, unit, decimals)}`;
+          return html;
+        },
+      },
+      legend: { top: 30, type: "plain" },
+      grid: { left: 60, right: 60, top: 125, bottom: 40 },
+      xAxis: { type: "category", data: xLabels, axisLabel: { fontSize: 12 } },
+      yAxis: { type: "value", name: `금액 (${unit})`, max: maxVal * 1.35 },
+      series: series,
+      graphic: kpiLabels,
+    };
+
+    if (!instanceRef.current) instanceRef.current = echarts.init($(elId));
+    instanceRef.current.setOption(option, true);
+  }
+
+  // 재료비 세부 항목
+  let matCats = QA.COST_GROUPS["재료비"] || [];
+  if (!showSupply) matCats = matCats.filter(c => c !== "사급품");
+  renderDetailChart("chart2a", chart2aRef, "재료비", matCats);
+
+  // 인건비 세부 항목
+  let laborCats = QA.COST_GROUPS["인건비"] || [];
+  if (!showUncl) laborCats = laborCats.filter(c => c !== "미분류");
+  renderDetailChart("chart2b", chart2bRef, "인건비", laborCats);
+
+  $("chartMeta").textContent =
+    `단위: ${unit} · 사급품: ${$("setSupply").value} · 강조: ${state.highlight}`;
+}
+
+// ─── 이벤트 바인딩 ───────────────────────────────────────────
+function bindEvents() {
+  const dz = $("dropzone"), fi = $("fileInput");
+  dz.onclick = () => fi.click();
+  fi.onchange = e => handleFiles(e.target.files);
+  dz.ondragover = e => { e.preventDefault(); dz.classList.add("drag"); };
+  dz.ondragleave = () => dz.classList.remove("drag");
+  dz.ondrop = e => { e.preventDefault(); dz.classList.remove("drag"); handleFiles(e.dataTransfer.files); };
+
+  ["setUnit","setDecimals","setSupply","optMatRate","optConn","optDelta","optSupply","optUncl"].forEach(id =>
+    $(id).addEventListener("change", renderChart));
+  $("setHighlight").addEventListener("change", e => { state.highlight = e.target.value; renderChart(); });
+  ["filterMode","filterCat","filterScen"].forEach(id => $(id).addEventListener("change", renderItemsTable));
+
+  // [분석 시작] 버튼 — 단계별 실행 + 진행률 바
+  $("btnAnalyze").onclick = async () => {
+    if (!state.fileOrder.length) {
+      $("analyzeHint").textContent = "⚠️ 먼저 파일을 업로드하세요.";
+      $("analyzeHint").style.color = "#DC2626";
+      return;
+    }
+    const bar = $("analyzeProgressBar"), label = $("analyzeProgressLabel"), wrap = $("analyzeProgress");
+    const setProgress = (pct, text) => {
+      bar.style.width = pct + "%";
+      label.textContent = text ? `${text} (${pct}%)` : `${pct}%`;
+    };
+    const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+    wrap.style.display = "block";
+    setProgress(0, "분석 시작");
+    await nextFrame();
+    state.analyzed = true;
+    try {
+      renderScenarioSelects(); setProgress(10, "비교안 준비"); await nextFrame();
+      renderFileList();         setProgress(20, "파일 목록");   await nextFrame();
+      renderRules();            setProgress(30, "분류 규칙");   await nextFrame();
+      renderItemsTable();       setProgress(45, "항목 표");     await nextFrame();
+      renderSummary();          setProgress(55, "비용 집계");   await nextFrame();
+      renderChart();            setProgress(90, "차트 렌더링"); await nextFrame();
+      renderValidation();       setProgress(100, "완료");
+      $("analyzeHint").textContent = "✅ 분석 완료 — 차트와 집계표가 표시됩니다.";
+      $("analyzeHint").style.color = "#15803D";
+    } catch (err) {
+      $("analyzeHint").textContent = "⚠️ 분석 중 오류: " + err.message;
+      $("analyzeHint").style.color = "#DC2626";
+      console.error(err);
+    }
+    setTimeout(() => { wrap.style.display = "none"; bar.style.width = "0%"; }, 1200);
+  };
+
+  $("btnAddRule").onclick = () => {
+    const kw = $("ruleKw").value.trim();
+    if (kw) { const rules = QA.loadRules(); rules[kw] = $("ruleCat").value; QA.saveRules(rules); state.userRules = rules; $("ruleKw").value = ""; renderRules(); }
+  };
+  $("btnSavePng1").onclick = () => {
+    if (!chart1Instance) return;
+    const url = chart1Instance.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: "#fff" });
+    const a = document.createElement("a"); a.href = url; a.download = "원가구성_1차_그룹차트.png"; a.click();
+  };
+  $("btnSavePng2a").onclick = () => {
+    if (!chart2aRef.current) return;
+    const url = chart2aRef.current.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: "#fff" });
+    const a = document.createElement("a"); a.href = url; a.download = "원가구성_재료비_세부차트.png"; a.click();
+  };
+  $("btnSavePng2b").onclick = () => {
+    if (!chart2bRef.current) return;
+    const url = chart2bRef.current.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: "#fff" });
+    const a = document.createElement("a"); a.href = url; a.download = "원가구성_인건비_세부차트.png"; a.click();
+  };
+  $("btnExpItems").onclick = async function() {
+    if (this.disabled) return;
+    this.disabled = true;
+    try {
+      const files = Object.values(state.files);
+      const xlsxFiles = files.filter(f => f.buf && f.type === "xlsx");
+      if (xlsxFiles.length === 0) {
+        const rows = [["비교안","파일","시트/페이지","행","품명","사양","수량","단가","금액","자동분류","신뢰도","최종분류","수정"]];
+        files.flatMap(f => f.items).forEach(it =>
+          rows.push([it.scenario, it.source_file, it.source_sheet, it.source_row, it.name, it.spec, it.quantity, it.unit_price, it.amount, it.auto_category, Math.round(it.confidence), it.final_category, it.is_modified ? "Y" : "N"]));
+        QA.exportExcel("견적항목.xlsx", { "견적항목": rows });
+        return;
+      }
+      for (const f of xlsxFiles) {
+        try {
+          await injectClassification(f);
+        } catch (e) {
+          console.error("분류 기록 실패:", f.name, e);
+          alert(`${f.name} 분류 기록 중 오류: ${e.message}`);
+        }
+      }
+    } finally {
+      this.disabled = false;
+    }
+  };
+
+  async function injectClassification(f) {
+    const zip = await JSZip.loadAsync(f.buf);
+    const sheetName = f.sheet || "Sheet1";
+
+    // 시트 파일 경로 탐색
+    const wbXml = await zip.file("xl/workbook.xml").async("string");
+    const relsXml = await zip.file("xl/_rels/workbook.xml.rels").async("string");
+    const escName = sheetName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const sheetMatch = wbXml.match(new RegExp(`<sheet[^>]*name=["']${escName}["'][^>]*r:id=["'](rId\\d+)["']`));
+    if (!sheetMatch) throw new Error("시트 rId를 찾을 수 없음: " + sheetName);
+    const rId = sheetMatch[1];
+    const relTagM = relsXml.match(new RegExp(`<Relationship\\b[^>]*Id=["']${rId}["'][^>]*>`));
+    if (!relTagM) throw new Error("Relationship를 찾을 수 없음: " + rId);
+    const targetM = relTagM[0].match(/Target=["']([^"']+)["']/);
+    if (!targetM) throw new Error("Target 속성을 찾을 수 없음: " + rId);
+    let sheetPath = targetM[1].startsWith("/") ? targetM[1].slice(1) : "xl/" + targetM[1];
+    if (!zip.file(sheetPath)) throw new Error("시트 파일을 찾을 수 없음: " + sheetPath);
+    let sheetXml = await zip.file(sheetPath).async("string");
+
+    // 마지막 사용 열 탐색
+    const wb = XLSX.read(f.buf, { type: "array" });
+    const ws = wb.Sheets[sheetName];
+    if (!ws || !ws["!ref"]) throw new Error("시트 범위를 찾을 수 없음");
+    const range = XLSX.utils.decode_range(ws["!ref"]);
+    let lastCol = 0;
+    for (let r = range.s.r; r <= range.e.r; r++) {
+      for (let c = range.e.c; c >= range.s.c; c--) {
+        const cell = ws[XLSX.utils.encode_cell({ r, c })];
+        if (cell && cell.v !== null && cell.v !== undefined && String(cell.v).trim() !== "") {
+          if (c > lastCol) lastCol = c;
+          break;
+        }
+      }
+    }
+    const col = lastCol + 1;
+    const colLetter = c => { let s = ""; c++; while (c > 0) { c--; s = String.fromCharCode(65 + c % 26) + s; c = Math.floor(c / 26); } return s; };
+
+    // 인라인 문자열 셀 생성 (sharedStrings 불필요)
+    const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const inlineCell = (ref, text) => `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${esc(text)}</t></is></c>`;
+    const numCell = (ref, num) => `<c r="${ref}"><v>${num}</v></c>`;
+
+    // dimension 확장
+    const newLastCol = col + 3;
+    const dimM = sheetXml.match(/<dimension ref="([^"]+)"/);
+    if (dimM) {
+      const dr = XLSX.utils.decode_range(dimM[1]);
+      if (newLastCol > dr.e.c) dr.e.c = newLastCol;
+      sheetXml = sheetXml.replace(/<dimension ref="[^"]*"/, `<dimension ref="${XLSX.utils.encode_range(dr)}"`);
+    }
+
+    // 행별 셀 삽입
+    const rowInserts = new Map();
+    // 헤더 행 (1행)
+    const headers = ["자동분류", "신뢰도(%)", "최종분류", "수정"];
+    rowInserts.set(1, headers.map((h, i) => inlineCell(colLetter(col + i) + "1", h)).join(""));
+    // 데이터 행
+    f.items.forEach(it => {
+      if (!it.source_row) return;
+      const rn = it.source_row;
+      const cells =
+        inlineCell(colLetter(col) + rn, it.auto_category) +
+        numCell(colLetter(col + 1) + rn, Math.round(it.confidence)) +
+        inlineCell(colLetter(col + 2) + rn, it.final_category) +
+        inlineCell(colLetter(col + 3) + rn, it.is_modified ? "Y" : "N");
+      rowInserts.set(rn, (rowInserts.get(rn) || "") + cells);
+    });
+
+    // sheetXml에 행별 삽입
+    sheetXml = sheetXml.replace(/<row\b[^>]*\br="(\d+)"[^>]*>([\s\S]*?)<\/row>/g, (m, rn) => {
+      const n = parseInt(rn);
+      if (rowInserts.has(n)) return m.replace(/<\/row>$/, rowInserts.get(n) + "</row>");
+      return m;
+    });
+    sheetXml = sheetXml.replace(/<row\b([^>]*\br="(\d+)"[^>]*)\/>/g, (m, attrs, rn) => {
+      const n = parseInt(rn);
+      if (rowInserts.has(n)) return `<row${attrs}>${rowInserts.get(n)}</row>`;
+      return m;
+    });
+
+    zip.file(sheetPath, sheetXml);
+
+    // zip 저장 & 다운로드
+    const outBuf = await zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
+    const outBlob = new Blob([outBuf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(outBlob);
+    a.download = f.name.replace(/\.[^.]+$/, "") + "_분류.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+  $("btnExpSummary").onclick = () => {
+    const scenarios = getScenarios();
+    const rows = [["비교안", ...QA.COST_CATEGORIES, "총 견적금액", "분석 원가", "재료비율(%)"]];
+    scenarios.forEach(s => rows.push([s.name, ...QA.COST_CATEGORIES.map(c => s.categoryTotals[c]||0), s.totalAmount, s.analysisCost, +s.materialRate.toFixed(1)]));
+    QA.exportExcel("집계표.xlsx", { "비용집계": rows });
+  };
+  $("btnExpDelta").onclick = () => {
+    const deltas = QA.computeDeltas(getScenarios());
+    const rows = [["구간","분류","증감액","증감률(%)"]];
+    deltas.forEach(pair => pair.forEach(d => rows.push([`${d.from} → ${d.to}`, d.category, Math.round(d.deltaAmount), +d.deltaRate.toFixed(2)])));
+    QA.exportExcel("증감분석.xlsx", { "증감분석": rows });
+  };
+  $("btnExpRules").onclick = () => {
+    const rules = QA.loadRules();
+    const rows = [["키워드","분류"], ...Object.entries(rules)];
+    QA.exportExcel("분류규칙.xlsx", { "분류규칙": rows });
+  };
+  $("btnExpChart").onclick = async function() {
+    if (this.disabled) return;
+    if (!state.analyzed) {
+      alert("먼저 [분석 시작]을 눌러 차트를 생성하세요.");
+      return;
+    }
+    this.disabled = true;
+    try {
+    const scenarios = getScenarios();
+    const showSupply = $("optSupply").checked, showUncl = $("optUncl").checked;
+
+    // ── Raw data 시트 (차트가 셀 범위를 참조하므로, 금액 수정 시 차트 자동 갱신) ──
+    const colL = n => { let s = ""; n++; while (n > 0) { n--; s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26); } return s; };
+    const groups = QA.GROUP_NAMES;
+
+    // 라벨 헬퍼 컬럼: "00.0백만원 (0.0%)" 한 줄 텍스트를 수식으로 생성.
+    // 금액 수정 시 헬퍼 셀 재계산 → 차트 라벨도 자동 갱신 (동적 유지).
+    // dataCols/totalCol: colL 인덱스 (0-based, A=0).
+    const withLabelCols = (header, dataRows, dataCols, totalCol) => {
+      const labelCols = dataCols.map((_, i) => header.length + i);
+      const fullHeader = [...header, ...dataCols.map((_, i) => `라벨${i + 1}`)];
+      const fullRows = [fullHeader];
+      const labelCells = []; // { addr, formula, value }
+      dataRows.forEach((row, k) => {
+        const r = k + 2; // 1-based 행 (1행 = 헤더)
+        const total = row[totalCol] || 0;
+        dataCols.forEach((c, i) => {
+          const d = colL(c) + r;
+          const t = "$" + colL(totalCol) + "$" + r;
+          const addr = colL(labelCols[i]) + r;
+          const val = row[c] || 0;
+          // 수식 (동적 갱신용) + JS에서 미리 계산한 캐시 값 (즉시 표시용)
+          const formula = `IF(${d}<=0,"",TEXT(${d}/1000000,"0.0")&"백만원 ("&TEXT(${d}/${t}*100,"0.0")&"%)")`;
+          const value = (val <= 0 || !total) ? "" : (val / 1000000).toFixed(1) + "백만원 (" + (val / total * 100).toFixed(1) + "%)";
+          labelCells.push({ addr, formula, value });
+        });
+        fullRows.push([...row, ...dataCols.map(() => null)]);
+      });
+      return { fullRows, labelCols, labelCells };
+    };
+
+    // 1차_그룹: A=비교안, B..=groups, F=총 견적금액, G=재료비율(%)
+    const groupHeader = ["비교안", ...groups, "총 견적금액", "재료비율(%)"];
+    const groupData = scenarios.map(s => {
+      const gt = QA.groupTotals(s.categoryTotals);
+      return [s.name, ...groups.map(g => gt[g] || 0), s.totalAmount, +s.materialRate.toFixed(1)];
+    });
+    const groupDef = withLabelCols(groupHeader, groupData, groups.map((_, i) => i + 1), 1 + groups.length);
+
+    // 2차_재료비: A=비교안, B..=matCats, 재료비 합계, 총 견적금액
+    let matCats = QA.COST_GROUPS["재료비"] || [];
+    if (!showSupply) matCats = matCats.filter(c => c !== "사급품");
+    const matHeader = ["비교안", ...matCats, "재료비 합계", "총 견적금액"];
+    const matData = scenarios.map(s => {
+      const sum = matCats.reduce((a, c) => a + (s.categoryTotals[c] || 0), 0);
+      return [s.name, ...matCats.map(c => s.categoryTotals[c] || 0), sum, s.totalAmount];
+    });
+    const matDef = withLabelCols(matHeader, matData, matCats.map((_, i) => i + 1), 1 + matCats.length + 1);
+
+    // 2차_인건비: A=비교안, B..=laborCats, 인건비 합계, 총 견적금액
+    let laborCats = QA.COST_GROUPS["인건비"] || [];
+    if (!showUncl) laborCats = laborCats.filter(c => c !== "미분류");
+    const laborHeader = ["비교안", ...laborCats, "인건비 합계", "총 견적금액"];
+    const laborData = scenarios.map(s => {
+      const sum = laborCats.reduce((a, c) => a + (s.categoryTotals[c] || 0), 0);
+      return [s.name, ...laborCats.map(c => s.categoryTotals[c] || 0), sum, s.totalAmount];
+    });
+    const laborDef = withLabelCols(laborHeader, laborData, laborCats.map((_, i) => i + 1), 1 + laborCats.length + 1);
+
+    const wb = XLSX.utils.book_new();
+    const mkSheet = (rows, labelCells) => {
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      // 라벨 헬퍼 셀: 수식(f) + JS에서 미리 계산한 캐시 값(v)으로 명시 설정.
+      // aoa_to_sheet는 "="로 시작하는 문자열을 수식이 아닌 일반 텍스트로 처리하므로
+      // 수식 셀은 반드시 { f, v, t } 형태로 직접 지정해야 함.
+      (labelCells || []).forEach(({ addr, formula, value }) => {
+        ws[addr] = { f: formula, v: value, t: "s" };
+      });
+      const colCount = Math.max(1, ...rows.map(r => r.length));
+      ws["!cols"] = Array.from({ length: colCount }, (_, c) => {
+        const wch = Math.max(...rows.map(r => String(r[c] === null || r[c] === undefined ? "" : r[c]).length), 8);
+        return { wch: Math.min(40, wch + 2) };
+      });
+      return ws;
+    };
+    XLSX.utils.book_append_sheet(wb, mkSheet(groupDef.fullRows, groupDef.labelCells), "1차_그룹");
+    XLSX.utils.book_append_sheet(wb, mkSheet(matDef.fullRows, matDef.labelCells), "2차_재료비");
+    XLSX.utils.book_append_sheet(wb, mkSheet(laborDef.fullRows, laborDef.labelCells), "2차_인건비");
+
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+    const zip = await JSZip.loadAsync(buf);
+
+    // ── 네이티브 엑셀 차트 주입 (셀 범위 참조 → 금액 수정 시 자동 갱신) ──
+    // 각 시트의 차트 정의: seriesCols = 1-based 열 인덱스 (B=1 시작), labelCols = 라벨 헬퍼 열 (colL 인덱스)
+    const chartDefs = [
+      { sheet: "xl/worksheets/sheet1.xml", sheetName: "1차_그룹", rows: groupDef.fullRows,
+        title: "① 1차: 비용 그룹 비교 (재료비 / 인건비 / 기업이윤 / 기타)",
+        seriesCols: groups.map((_, i) => i + 1), labelCols: groupDef.labelCols, labelSz: 800 },
+      { sheet: "xl/worksheets/sheet2.xml", sheetName: "2차_재료비", rows: matDef.fullRows,
+        title: "② 2차: 재료비 세부 항목",
+        seriesCols: matCats.map((_, i) => i + 1), labelCols: matDef.labelCols, labelSz: 700 },
+      { sheet: "xl/worksheets/sheet3.xml", sheetName: "2차_인건비", rows: laborDef.fullRows,
+        title: "③ 2차: 인건비 세부 항목",
+        seriesCols: laborCats.map((_, i) => i + 1), labelCols: laborDef.labelCols, labelSz: 700 },
+    ];
+
+    const buildChartXml = (def) => {
+      const q = `'${def.sheetName}'`;
+      const last = def.rows.length; // 마지막 데이터 행 (1-based)
+      const catRef = `${q}!$A$2:$A$${last}`;
+      // PNG와 동일한 Y축 스케일: 최대 스택 합계 * 1.35 (원 단위 저장, 표시는 백만원)
+      const maxStack = Math.max(...def.rows.slice(1).map(row =>
+        def.seriesCols.reduce((sum, c) => sum + (Number(row[c]) || 0), 0)
+      ), 1);
+      const axisMax = Math.ceil(maxStack * 1.35);
+      // PNG(ECharts)와 유사한 눈금 간격: 1/2/5/10 계열 스텝
+      const niceStep = x => {
+        const p = Math.pow(10, Math.floor(Math.log10(x)));
+        const f = x / p;
+        return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+      };
+      const majorUnit = niceStep(axisMax / 8);
+      const sers = def.seriesCols.map((c, i) => {
+        const L = colL(c);
+        const labelL = colL(def.labelCols[i]);
+        // 포인트별 dLbl: 라벨 헬퍼 셀을 strRef로 참조 → "00.0백만원 (0.0%)" 한 줄 표시.
+        // CT_DLbls에는 tx 자식이 없으므로(스키마 위반), 포인트별 <c:dLbl><c:tx>로 표현.
+        // 0값 포인트는 tx 없이 show* 전부 0 → 라벨 숨김 (ECharts formatter 0→"" 동일).
+        const dLbls = def.rows.slice(1).map((row, k) => {
+          const isZero = (Number(row[c]) || 0) <= 0;
+          const tx = isZero ? "" :
+            `<c:tx><c:strRef><c:f>${q}!$${labelL}$${k + 2}</c:f></c:strRef></c:tx>`;
+          return `<c:dLbl><c:idx val="${k}"/>` + tx +
+            `<c:showLegendKey val="0"/><c:showVal val="0"/><c:showCatName val="0"/>` +
+            `<c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/>` +
+            `</c:dLbl>`;
+        }).join("");
+        // 스키마 순서: idx, order, tx, dLbls(dLbl...), cat, val
+        return `<c:ser><c:idx val="${i}"/><c:order val="${i}"/>` +
+          `<c:tx><c:strRef><c:f>${q}!$${L}$1</c:f></c:strRef></c:tx>` +
+          `<c:dLbls>` + dLbls +
+          `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="${def.labelSz}" b="1"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:defRPr></a:pPr><a:endParaRPr sz="${def.labelSz}" b="1"/></a:p></c:txPr>` +
+          `<c:dLblPos val="ctr"/>` +
+          `<c:showLegendKey val="0"/><c:showVal val="0"/><c:showCatName val="0"/>` +
+          `<c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/>` +
+          `<c:showLeaderLines val="1"/>` + `</c:dLbls>` +
+          `<c:cat><c:strRef><c:f>${catRef}</c:f></c:strRef></c:cat>` +
+          `<c:val><c:numRef><c:f>${q}!$${L}$2:$${L}$${last}</c:f></c:numRef></c:val>` +
+          `</c:ser>`;
+      }).join("");
+      return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+        `<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+        `<c:chart>` +
+        `<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${def.title}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>` +
+        `<c:autoTitleDeleted val="0"/>` +
+        `<c:plotArea><c:layout/>` +
+        `<c:barChart><c:barDir val="col"/><c:grouping val="stacked"/><c:varyColors val="0"/>` +
+        sers +
+        `<c:gapWidth val="50"/><c:overlap val="100"/>` +
+        `<c:axId val="111111111"/><c:axId val="222222222"/>` +
+        `</c:barChart>` +
+        `<c:catAx><c:axId val="111111111"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="222222222"/><c:crosses val="autoZero"/></c:catAx>` +
+        // 스키마 순서: scaling(max,min), delete, axPos, title, numFmt, majorTickMark, tickLblPos, crossAx, crosses, majorUnit
+        `<c:valAx><c:axId val="222222222"/>` +
+        `<c:scaling><c:orientation val="minMax"/><c:max val="${axisMax}"/><c:min val="0"/></c:scaling>` +
+        `<c:delete val="0"/><c:axPos val="l"/>` +
+        `<c:title><c:tx><c:rich><a:bodyPr rot="0" vert="horz" anchor="t"/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="900"/></a:pPr><a:r><a:rPr lang="ko-KR" sz="900"/><a:t>금액 (백만원)</a:t></a:r></a:p></c:rich></c:tx>` +
+        // Excel은 <c:layoutTarget>를 거부(복구 대화상자) → 위치값만 남김 (v6b 검증 통과)
+        `<c:layout><c:manualLayout><c:xMode val="edge"/><c:yMode val="edge"/><c:x val="0"/><c:y val="0"/><c:w val="0.6"/><c:h val="0.06"/></c:manualLayout></c:layout>` +
+        `</c:title>` +
+        `<c:numFmt formatCode="0,," sourceLinked="0"/>` +
+        `<c:majorTickMark val="out"/><c:tickLblPos val="nextTo"/>` +
+        `<c:crossAx val="111111111"/><c:crosses val="autoZero"/>` +
+        `<c:majorUnit val="${majorUnit}"/>` +
+        `</c:valAx>` +
+        `</c:plotArea>` +
+        `<c:legend><c:legendPos val="t"/><c:overlay val="0"/></c:legend>` +
+        `<c:plotVisOnly val="1"/>` +
+        `</c:chart>` +
+        `</c:chartSpace>`;
+    };
+
+    const NSP = "http://schemas.openxmlformats.org/package/2006/relationships";
+    for (let idx = 0; idx < chartDefs.length; idx++) {
+      const def = chartDefs[idx];
+      const n = idx + 1;
+      const anchorRow = def.rows.length + 1; // 데이터 마지막 행 아래 1행 (0-based)
+
+      // 1) chart xml
+      //    (chart 파트는 셀 참조(<c:f>)로 데이터를 참조하므로 rels 파일이 필요 없다.
+      //     chart→drawing rels를 만들면 drawing→chart와 사이클이 생겨 Excel이 복구 시 drawing을 삭제함)
+      zip.file(`xl/charts/chart${n}.xml`, buildChartXml(def));
+
+      // 2) drawing xml (graphicFrame → chart, spreadsheetDrawing 네임스페이스)
+      zip.file(`xl/drawings/drawing${n}.xml`,
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+        `<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+        `<xdr:twoCellAnchor>` +
+        `<xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${anchorRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>` +
+        `<xdr:to><xdr:col>9</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${anchorRow + 22}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>` +
+        `<xdr:graphicFrame>` +
+        `<xdr:nvGraphicFramePr><xdr:cNvPr id="${idx + 2}" name="Chart ${n}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>` +
+        `<xdr:xfrm/>` +
+        `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">` +
+        `<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="rId1"/>` +
+        `</a:graphicData></a:graphic>` +
+        `</xdr:graphicFrame>` +
+        `<xdr:clientData/>` +
+        `</xdr:twoCellAnchor></xdr:wsDr>`);
+
+      // 3) drawing rels (drawing → chart)
+      zip.file(`xl/drawings/_rels/drawing${n}.xml.rels`,
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+        `<Relationships xmlns="${NSP}">` +
+        `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart${n}.xml"/>` +
+        `</Relationships>`);
+
+      // 4) sheet rels (sheet → drawing)
+      zip.file(`xl/worksheets/_rels/sheet${n}.xml.rels`,
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+        `<Relationships xmlns="${NSP}">` +
+        `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${n}.xml"/>` +
+        `</Relationships>`);
+
+      // 5) sheet xml에 <drawing r:id="rId1"/> 주입 (</worksheet> 직전)
+      const sheetXml = await zip.file(def.sheet).async("string");
+      zip.file(def.sheet, sheetXml.replace("</worksheet>", `<drawing r:id="rId1"/></worksheet>`));
+    }
+
+    // [Content_Types].xml에 chart + drawing Override 추가
+    const ct = await zip.file("[Content_Types].xml").async("string");
+    let newCt = ct;
+    if (!ct.includes("drawingml.chart+xml")) {
+      let overrides = "";
+      for (let n = 1; n <= 3; n++) {
+        overrides +=
+          `<Override PartName="/xl/charts/chart${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>` +
+          `<Override PartName="/xl/drawings/drawing${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`;
+      }
+      newCt = newCt.replace("</Types>", overrides + `</Types>`);
+    }
+    zip.file("[Content_Types].xml", newCt);
+
+    const out = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(out);
+    a.download = "원가구성_차트_RawData.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } finally {
+      this.disabled = false;
+    }
+  };
+
+  window.addEventListener("resize", () => {
+    if (chart1Instance) chart1Instance.resize();
+    if (chart2aRef.current) chart2aRef.current.resize();
+    if (chart2bRef.current) chart2bRef.current.resize();
+  });
+}
+
+// ─── 시작 ────────────────────────────────────────────────────
+initSettings();
+bindEvents();
+renderAll();
+</script>
+</body>
+</html>

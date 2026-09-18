@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+data/sample/
+cost_chart.png
+.git/
+.venv/
+venv/

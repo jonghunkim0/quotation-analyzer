@@ -1,0 +1,12 @@
+services:
+  quotation-analyzer:
+    build: .
+    container_name: quotation-analyzer
+    ports:
+      - "8501:8501"
+    volumes:
+      # 사용자 분류 규칙을 컨테이너 외부에 영구 저장
+      - ./data:/app/data
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Seoul
