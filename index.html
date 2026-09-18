@@ -81,7 +81,7 @@
 <body>
 <header>
   <h1>📊 원가구성 비교 분석 도구</h1>
-  <p>Excel/PDF 견적서 업로드 → 자동 분류 → 원가구성 비교 차트 &nbsp;|&nbsp; 🔒 모든 데이터는 이 브라우저 안에서만 처리됩니다 (외부 전송 없음)</p>
+  <p>Excel/PDF 견적서 선택 → 자동 분류 → 원가구성 비교 차트 &nbsp;|&nbsp; 🔒 모든 데이터는 이 브라우저 안에서만 처리됩니다 (외부 전송 없음)</p>
 </header>
 
 <div class="layout">
@@ -113,17 +113,17 @@
 
   <!-- ─── 메인 ─── -->
   <div class="main">
-    <!-- 1. 업로드 -->
+    <!-- 1. 파일 선택 -->
     <div class="card">
-      <h2>1. 파일 업로드</h2>
+      <h2>1. 파일 선택</h2>
       <div class="dropzone" id="dropzone">
         📁 견적 파일을 클릭해서 선택하거나 끌어다 놓으세요<br>
-        <span class="muted">Excel: .xlsx, .xls &nbsp;|&nbsp; PDF: .pdf (텍스트형/스캔형)</span>
+        <span class="muted">Excel: .xlsx, .xls &nbsp;|&nbsp; PDF: .pdf (텍스트형/스캔형) · 업로드 없이 로컬에서 읽습니다</span>
       </div>
       <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.pdf" class="hidden">
       <div class="row" style="margin-top:12px; align-items:center">
         <button class="primary" id="btnAnalyze" style="font-size:15px; padding:10px 28px;">▶ 분석 시작</button>
-        <span class="muted" id="analyzeHint">파일을 업로드한 뒤 [분석 시작]을 누르면 원가구성 차트가 표시됩니다.</span>
+        <span class="muted" id="analyzeHint">파일을 선택한 뒤 [분석 시작]을 누르면 파일을 읽고 원가구성 차트를 표시합니다.</span>
       </div>
       <div id="analyzeProgress" style="display:none; margin-top:8px; max-width:280px;">
         <div style="height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden;">
@@ -270,57 +270,102 @@ function initSettings() {
   $("footerTime").textContent = new Date().toLocaleString("ko-KR");
 }
 
-// ─── 파일 업로드 ─────────────────────────────────────────────
-async function handleFiles(fileList) {
-  for (const file of fileList) {
-    const id = "file_" + Math.random().toString(36).slice(2, 10);
-    const ext = file.name.split(".").pop().toLowerCase();
-    // 비교안 이름 = 파일명(확장자 제외), 업로드 순서대로 배치
-    const baseName = file.name.replace(/\.[^.]+$/, "").replace(/_/g, " ");
-    const existing = state.fileOrder.map(fid => state.files[fid]?.scenario).filter(Boolean);
-    let scenario = baseName, n = 2;
-    while (existing.includes(scenario)) scenario = `${baseName} (${n++})`;
-    const entry = { id, name: file.name, type: ext, items: [], error: "", isScanned: false, scenario };
-    try {
-      if (ext === "xlsx" || ext === "xls") {
-        const buf = await file.arrayBuffer();
-        entry.buf = buf; // 원본 버퍼 보존 (견적항목 내보내기 시 원본에 분류 기록)
-        const wb = XLSX.read(buf, { type: "array" });
-        const sheetName = wb.SheetNames[0];
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: null });
-        const res = QA.parseExcelSheet(rows, file.name, sheetName, "견적가");
-        if (res.error) { entry.error = res.error; }
-        else {
-          entry.items = res.items; entry.originalTotal = res.originalTotal;
-          entry.extractedTotal = res.extractedTotal; entry.taxAmount = res.taxAmount;
-          entry.sheet = sheetName;
-        }
-      } else if (ext === "pdf") {
-        const buf = await file.arrayBuffer();
-        const res = await QA.parsePDF(buf, file.name, "견적가");
-        entry.items = res.items; entry.originalTotal = res.originalTotal;
-        entry.extractedTotal = res.extractedTotal; entry.taxAmount = res.taxAmount;
-        entry.isScanned = res.isScanned;
-        if (res.isScanned) entry.error = "스캔형 PDF입니다. 텍스트가 거의 없어 추출이 어려울 수 있습니다.";
-      } else {
-        entry.error = "지원하지 않는 형식: ." + ext;
-      }
-    } catch (e) {
-      entry.error = "파싱 실패: " + e.message;
-    }
-    // 자동 분류 + 시나리오(파일명) 할당
-    entry.items.forEach(it => {
-      it.scenario = entry.scenario;
-      const r = QA.classifyItem(it, state.userRules);
-      it.auto_category = r.category; it.confidence = r.confidence;
-      it.keywords = r.keywords; it.reason = r.reason; it.final_category = r.category;
-    });
-    state.files[id] = entry;
-    state.fileOrder.push(id);
-  }
-  // 새 파일 업로드 시 분석 초기화 (다시 [분석 시작] 필요)
+// ─── 파일 선택 (File System Access API) ──────────────────────
+// 선택 시에는 파일 내용 읽지 않고 핸들/경로만 기록. [분석 시작] 시점에 읽음.
+function addFileEntry(file, handle) {
+  const id = "file_" + Math.random().toString(36).slice(2, 10);
+  const ext = file.name.split(".").pop().toLowerCase();
+  // 비교안 이름 = 파일명(확장자 제외), 선택 순서대로 배치
+  const baseName = file.name.replace(/\.[^.]+$/, "").replace(/_/g, " ");
+  const existing = state.fileOrder.map(fid => state.files[fid]?.scenario).filter(Boolean);
+  let scenario = baseName, n = 2;
+  while (existing.includes(scenario)) scenario = `${baseName} (${n++})`;
+  const entry = {
+    id, name: file.name, type: ext, items: [], error: "", isScanned: false, scenario,
+    handle: handle || null,   // FileSystemFileHandle (드롭존 클릭 선택)
+    file: handle ? null : file, // File (드래그앤드롭 / 파일 입력)
+    parsed: false,
+  };
+  state.files[id] = entry;
+  state.fileOrder.push(id);
+}
+
+function handleFiles(fileList) {
+  for (const file of fileList) addFileEntry(file, null);
+  // 새 파일 선택 시 분석 초기화 (다시 [분석 시작] 필요)
   state.analyzed = false;
   renderAll();
+}
+
+// 드롭존 클릭 → File System Access API 파일 선택 다이얼로그
+async function pickFiles() {
+  if (window.showOpenFilePicker) {
+    try {
+      const handles = await showOpenFilePicker({
+        multiple: true,
+        types: [{ description: "견적 파일", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"], "application/vnd.ms-excel": [".xls"], "application/pdf": [".pdf"] } }],
+      });
+      for (const h of handles) {
+        const f = await h.getFile();
+        addFileEntry(f, h);
+      }
+      state.analyzed = false;
+      renderAll();
+    } catch (e) { /* 사용자가 취소한 경우 무시 */ }
+  } else {
+    $("fileInput").click(); // API 미지원 브라우저 폴백
+  }
+}
+
+// [분석 시작] 시점에 파일 내용 읽기 (로컬에서만, 업로드 없음)
+async function readFileBuffer(entry) {
+  if (entry.handle) {
+    let perm = await entry.handle.queryPermission({ mode: "read" });
+    if (perm !== "granted") perm = await entry.handle.requestPermission({ mode: "read" });
+    if (perm !== "granted") throw new Error("파일 읽기 권한이 거부되었습니다.");
+    const f = await entry.handle.getFile();
+    return f.arrayBuffer();
+  }
+  return entry.file.arrayBuffer();
+}
+
+// 파일 파싱 (선택 후 [분석 시작] 시 호출)
+async function parseFile(entry) {
+  try {
+    if (entry.type === "xlsx" || entry.type === "xls") {
+      const buf = await readFileBuffer(entry);
+      entry.buf = buf; // 원본 버퍼 보존 (견적항목 내보내기 시 원본에 분류 기록)
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheetName = wb.SheetNames[0];
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: null });
+      const res = QA.parseExcelSheet(rows, entry.name, sheetName, "견적가");
+      if (res.error) { entry.error = res.error; }
+      else {
+        entry.items = res.items; entry.originalTotal = res.originalTotal;
+        entry.extractedTotal = res.extractedTotal; entry.taxAmount = res.taxAmount;
+        entry.sheet = sheetName;
+      }
+    } else if (entry.type === "pdf") {
+      const buf = await readFileBuffer(entry);
+      const res = await QA.parsePDF(buf, entry.name, "견적가");
+      entry.items = res.items; entry.originalTotal = res.originalTotal;
+      entry.extractedTotal = res.extractedTotal; entry.taxAmount = res.taxAmount;
+      entry.isScanned = res.isScanned;
+      if (res.isScanned) entry.error = "스캔형 PDF입니다. 텍스트가 거의 없어 추출이 어려울 수 있습니다.";
+    } else {
+      entry.error = "지원하지 않는 형식: ." + entry.type;
+    }
+  } catch (e) {
+    entry.error = "파싱 실패: " + e.message;
+  }
+  // 자동 분류 + 시나리오(파일명) 할당
+  entry.items.forEach(it => {
+    it.scenario = entry.scenario;
+    const r = QA.classifyItem(it, state.userRules);
+    it.auto_category = r.category; it.confidence = r.confidence;
+    it.keywords = r.keywords; it.reason = r.reason; it.final_category = r.category;
+  });
+  entry.parsed = true;
 }
 
 // ─── 비교안 집계 (업로드 순서, 파일명 기반) ──────────────────
@@ -393,10 +438,12 @@ function renderFileList() {
   Object.values(state.files).forEach(f => {
     const div = document.createElement("div");
     div.className = "fileitem";
-    let badge = f.error ? `<span class="badge err">오류</span>`
+    let badge = !f.parsed ? `<span class="badge ocr">선택됨</span>`
+              : f.error ? `<span class="badge err">오류</span>`
               : f.isScanned ? `<span class="badge ocr">OCR 필요</span>`
               : `<span class="badge ok">완료</span>`;
-    div.innerHTML = `<span>${badge} <b>${f.name}</b> <span class="muted">(${f.items.length}개 항목)</span></span>
+    const itemInfo = f.parsed ? `<span class="muted">(${f.items.length}개 항목)</span>` : `<span class="muted">· [분석 시작] 시 파일 읽기</span>`;
+    div.innerHTML = `<span>${badge} <b>${f.name}</b> ${itemInfo}</span>
       <button class="danger" data-del="${f.id}">✕</button>`;
     list.appendChild(div);
     if (f.error) {
@@ -771,8 +818,8 @@ function renderChart() {
 // ─── 이벤트 바인딩 ───────────────────────────────────────────
 function bindEvents() {
   const dz = $("dropzone"), fi = $("fileInput");
-  dz.onclick = () => fi.click();
-  fi.onchange = e => handleFiles(e.target.files);
+  dz.onclick = () => pickFiles();
+  fi.onchange = e => { handleFiles(e.target.files); fi.value = ""; };
   dz.ondragover = e => { e.preventDefault(); dz.classList.add("drag"); };
   dz.ondragleave = () => dz.classList.remove("drag");
   dz.ondrop = e => { e.preventDefault(); dz.classList.remove("drag"); handleFiles(e.dataTransfer.files); };
@@ -785,7 +832,7 @@ function bindEvents() {
   // [분석 시작] 버튼 — 단계별 실행 + 진행률 바
   $("btnAnalyze").onclick = async () => {
     if (!state.fileOrder.length) {
-      $("analyzeHint").textContent = "⚠️ 먼저 파일을 업로드하세요.";
+      $("analyzeHint").textContent = "⚠️ 먼저 파일을 선택하세요.";
       $("analyzeHint").style.color = "#DC2626";
       return;
     }
@@ -794,12 +841,26 @@ function bindEvents() {
       bar.style.width = pct + "%";
       label.textContent = text ? `${text} (${pct}%)` : `${pct}%`;
     };
-    const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+    const nextFrame = () => new Promise(r => setTimeout(r, 0));
     wrap.style.display = "block";
     setProgress(0, "분석 시작");
     await nextFrame();
-    state.analyzed = true;
     try {
+      // 선택된 파일 읽기 + 파싱 (로컬에서만, 업로드 없음)
+      const pending = state.fileOrder.map(fid => state.files[fid]).filter(f => f && !f.parsed);
+      for (let i = 0; i < pending.length; i++) {
+        setProgress(2 + Math.round(i / pending.length * 8), `파일 읽기 ${i + 1}/${pending.length}`);
+        await nextFrame();
+        await parseFile(pending[i]);
+      }
+      renderFileList();
+      const failed = Object.values(state.files).filter(f => f.error);
+      if (failed.length) {
+        $("analyzeHint").textContent = "⚠️ " + failed.map(f => f.name).join(", ") + " — " + failed[0].error;
+        $("analyzeHint").style.color = "#DC2626";
+        return;
+      }
+      state.analyzed = true;
       renderScenarioSelects(); setProgress(10, "비교안 준비"); await nextFrame();
       renderFileList();         setProgress(20, "파일 목록");   await nextFrame();
       renderRules();            setProgress(30, "분류 규칙");   await nextFrame();
