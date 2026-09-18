@@ -74,6 +74,21 @@
   .pill { font-size: 11px; padding: 3px 10px; border-radius: 12px;
           background: #eff6ff; color: #1e40af; }
   .footer { text-align: center; color: var(--muted); font-size: 12px; padding: 16px; }
+  .chat-log { height: 240px; overflow-y: auto; background: #f9fafb;
+              border: 1px solid var(--border); border-radius: 6px;
+              padding: 8px; margin-bottom: 8px; }
+  .msg { max-width: 92%; padding: 6px 10px; border-radius: 10px;
+         font-size: 12px; line-height: 1.5; margin-bottom: 6px;
+         word-break: keep-all; white-space: pre-wrap; }
+  .msg.bot { background: #fff; border: 1px solid var(--border);
+             border-bottom-left-radius: 3px; }
+  .msg.user { background: var(--primary); color: #fff; margin-left: auto;
+              border-bottom-right-radius: 3px; }
+  .chat-input { display: flex; gap: 6px; }
+  .chat-input input { flex: 1; min-width: 0; }
+  .chat-input button { flex-shrink: 0; padding: 6px 12px; }
+  .chat-hint { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .chat-hint b { color: #374151; }
   .hidden { display: none; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 900px) { .layout { flex-direction: column; } .sidebar { width: 100%; } }
@@ -81,7 +96,7 @@
 </head>
 <body>
 <header>
-  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.1.0 · 업데이트 2026. 9. 18. 오후 4:10</span></h1>
+  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.2.0 · 업데이트 2026. 9. 18. 오후 5:30</span></h1>
   <p>Excel/PDF 견적서 선택 → 자동 분류 → 원가구성 비교 차트 &nbsp;|&nbsp; 🔒 모든 데이터는 이 브라우저 안에서만 처리됩니다 (외부 전송 없음)</p>
 </header>
 
@@ -109,6 +124,25 @@
 
       <h3>강조 비교안</h3>
       <select id="setHighlight"></select>
+    </div>
+
+    <div class="card">
+      <h2>💬 분석 도우미</h2>
+      <div class="chat-log" id="chatLog">
+        <div class="msg bot">안녕하세요! 분석 데이터를 수정하거나 조회할 수 있습니다. 아래 예시를 참고해 주세요.</div>
+      </div>
+      <div class="chat-input">
+        <input type="text" id="chatInput" placeholder="예: 50번째 항목은 기구 재료비로" />
+        <button id="chatSend">전송</button>
+      </div>
+      <div class="chat-hint">
+        <b>예시</b><br>
+        · 50번째 항목은 기구 재료비로 반영해줘<br>
+        · 12~15번 항목은 경비로 바꿔줘<br>
+        · 미분류 항목 보여줘<br>
+        · 재료비 총액 알려줘<br>
+        <span style="color:#9ca3af">※ 채팅 내용은 LLM 서버로 전송됩니다</span>
+      </div>
     </div>
   </div>
 
@@ -1295,6 +1329,132 @@ function bindEvents() {
     if (chart2aRef.current) chart2aRef.current.resize();
     if (chart2bRef.current) chart2bRef.current.resize();
   });
+
+  // 💬 분석 도우미
+  $("chatSend").onclick = sendChat;
+  $("chatInput").addEventListener("keydown", e => { if (e.key === "Enter") sendChat(); });
+}
+
+// ─── 💬 분석 도우미 (LLM 챗봇) ────────────────────────────────
+const CHAT_API_URL = "https://bai.hpc.lge.com:10602/api/v1/chat/completions";
+const CHAT_API_KEY = "sk-9370684cc9794f03b2b951b02bab8d98";
+const CHAT_MODEL = "Qwen/Qwen3.8-27B-FP8";
+let chatHistory = [];   // {role, content}
+let chatBusy = false;
+
+function chatAllItems() {
+  return Object.values(state.files).flatMap(f => f.items);
+}
+
+function buildChatContext() {
+  const items = chatAllItems();
+  const scen = getScenarios();
+  let ctx = "## 비교안 집계\n";
+  scen.forEach(s => {
+    const cats = Object.entries(s.categoryTotals)
+      .filter(([, v]) => v !== 0)
+      .map(([c, v]) => `${c} ${Math.round(v).toLocaleString()}`).join(", ");
+    ctx += `- ${s.name}: 총 ${Math.round(s.totalAmount).toLocaleString()}원 (${cats})\n`;
+  });
+  ctx += "\n## 견적 항목 목록 (번호 = 표의 행 순서)\n";
+  items.forEach((it, i) => {
+    ctx += `${i + 1}. [행${it.source_row}] ${it.name.slice(0, 30)} | ${Math.round(it.amount).toLocaleString()}원 | ${it.final_category}\n`;
+  });
+  return ctx;
+}
+
+function chatSystemPrompt() {
+  return `너는 "원가구성 비교 분석 도구"의 분석 도우미다. 사용자의 요청에 따라 분석 데이터를 조회하거나 수정한다.
+
+사용 가능한 비용 분류: ${QA.COST_CATEGORIES.join(", ")}
+
+## 현재 분석 데이터
+${buildChatContext()}
+
+## 규칙
+1. 항상 한국어로 간결하게 답한다.
+2. "N번째 항목"은 위 목록의 번호 N을 의미한다. "N~M번"은 N부터 M까지의 항목을 의미한다.
+3. 항목의 분류를 수정해 달라는 요청이면, 답의 마지막 줄에 반드시 아래 형식의 ACTION 줄을 포함하라:
+ACTION: {"action":"reclassify","indices":[50],"category":"기구 재료비"}
+   - indices는 수정할 항목 번호 배열, category는 위 분류 중 하나
+4. 조회 요청(총액, 미분류 목록 등)이면 ACTION 없이 텍스트로만 답한다.
+5. 데이터에 없는 요청이면 그렇게 알려준다.`;
+}
+
+function chatAppend(role, text) {
+  const log = $("chatLog");
+  const div = document.createElement("div");
+  div.className = "msg " + role;
+  div.textContent = text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+
+async function sendChat() {
+  const input = $("chatInput");
+  const text = input.value.trim();
+  if (!text || chatBusy) return;
+  if (!state.analyzed) {
+    chatAppend("bot", "⚠️ 먼저 파일을 선택하고 [분석 시작]을 눌러주세요.");
+    input.value = "";
+    return;
+  }
+  input.value = "";
+  chatAppend("user", text);
+  chatBusy = true;
+  $("chatSend").disabled = true;
+  const typing = chatAppend("bot", "…");
+
+  try {
+    const messages = [
+      { role: "system", content: chatSystemPrompt() },
+      ...chatHistory.slice(-8),
+      { role: "user", content: text },
+    ];
+    const res = await fetch(CHAT_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + CHAT_API_KEY },
+      body: JSON.stringify({ model: CHAT_MODEL, messages, max_tokens: 1500, temperature: 0 }),
+    });
+    if (!res.ok) throw new Error("API 오류 (HTTP " + res.status + ")");
+    const data = await res.json();
+    const content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+    if (!content) throw new Error("응답이 비어 있습니다. 다시 시도해 주세요.");
+
+    // ACTION 추출 + 실행
+    const m = content.match(/ACTION:\s*(\{[\s\S]*\})/);
+    let reply = content.replace(/ACTION:\s*\{[\s\S]*\}/, "").trim();
+    if (m) {
+      try {
+        const act = JSON.parse(m[1]);
+        if (act.action === "reclassify" && Array.isArray(act.indices) && QA.COST_CATEGORIES.includes(act.category)) {
+          const items = chatAllItems();
+          let n = 0;
+          act.indices.forEach(idx => {
+            const it = items[idx - 1];
+            if (it) {
+              it.final_category = act.category; it.is_modified = true;
+              QA.learnFromCorrection(it.name, it.spec, act.category);
+              n++;
+            }
+          });
+          if (n) { state.userRules = QA.loadRules(); renderAll(); }
+          reply += (n ? `\n✅ ${n}개 항목을 "${act.category}"(으)로 수정했습니다.` : "\n⚠️ 해당하는 항목을 찾지 못했습니다.");
+        }
+      } catch (e) { /* JSON 파싱 실패 시 텍스트만 표시 */ }
+    }
+    typing.textContent = reply;
+    chatHistory.push({ role: "user", content: text }, { role: "assistant", content: reply });
+    if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
+  } catch (err) {
+    typing.textContent = "⚠️ " + err.message;
+  } finally {
+    chatBusy = false;
+    $("chatSend").disabled = false;
+    $("chatLog").scrollTop = $("chatLog").scrollHeight;
+    input.focus();
+  }
 }
 
 // ─── 시작 ────────────────────────────────────────────────────
