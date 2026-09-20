@@ -81,25 +81,28 @@ const CLASSIFICATION_RULES = {
              "free issue", "고객부품", "고객제공"],
   "구매품": ["구매품", "구매 part", "구매파트", "외주 구매", "상용품", "표준 구매",
              "vendor item", "commercial part", "buy part", "purchased item",
-             "외부 조달"],
+             "외부 조달",
+             // 기계 표준 구매 부품 (모터·실린더·로봇 등 장비에 들어가는 구매 부품)
+             "모터", "서보", "실린더", "로봇", "lm가이드", "lm 가이드", "볼스크류", "볼 스크류",
+             "베어링", "기어", "커플링", "벨트", "풀리", "스프링",
+             // 전장·제어 표준 구매 부품
+             "plc", "hmi", "센서", "인버터", "차단기", "릴레이", "스위치", "터미널",
+             "커넥터", "전원공급기", "psu", "컨택터", "마그네틱", "피더",
+             "브레이커", "조명", "램프", "버튼", "코일", "트랜스", "제어 부품",
+             // English
+             "motor", "servo", "cylinder", "robot", "lm guide", "lmguid", "ball screw", "ballscrew",
+             "bearing", "gear", "coupling", "belt", "pulley", "spring",
+             "plc", "hmi", "sensor", "inverter", "breaker", "relay", "switch",
+             "terminal", "connector", "power supply", "contactor", "magnetic", "feeder",
+             "lamp", "button", "coil", "transformer"],
   "기구 재료비": ["프레임", "플레이트", "브라켓", "가공품", "알루미늄", "프로파일",
-             "lm가이드", "lm 가이드", "베어링", "볼스크류", "볼 스크류", "실린더",
-             "벨트", "풀리", "볼트", "너트", "기계 제작", "스페이서", "샤프트",
-             "기어", "커플링", "스프링", "플랜지", "지지대", "베이스", "커버",
+             "볼트", "너트", "기계 제작", "스페이서", "샤프트", "플랜지", "지지대", "베이스", "커버",
              "하우징", "케이스", "스틸", "강판",
              "frame", "plate", "bracket", "aluminum", "aluminium", "profile",
-             "lmguid", "lm guide", "bearing", "ball screw", "ballscrew", "cylinder", "belt", "pulley",
-             "bolt", "nut", "spacer", "shaft", "gear", "coupling", "spring",
-             "flange", "base", "cover", "housing", "case", "steel", "machined",
+             "bolt", "nut", "spacer", "shaft", "flange", "base", "cover", "housing", "case", "steel", "machined",
              "mechanical part", "mechanical material"],
-  "전장·제어 재료비": ["plc", "hmi", "센서", "모터", "서보", "인버터", "케이블",
-             "차단기", "릴레이", "스위치", "터미널", "커넥터", "판넬", "전장품",
-             "제어 부품", "전원공급기", "psu", "컨택터", "마그네틱", "피더",
-             "브레이커", "조명", "램프", "버튼", "전선", "코일", "트랜스",
-             "sensor", "motor", "servo", "inverter", "cable", "breaker",
-             "relay", "switch", "terminal", "connector", "panel", "power supply",
-             "contactor", "magnetic", "feeder", "lamp", "button", "wire", "coil",
-             "transformer", "electrical part", "electrical material"],
+  "전장·제어 재료비": ["판넬", "전선", "케이블", "전장품",
+             "panel", "wire", "cable", "electrical part", "electrical material"],
   "기구설계 인건비": ["기구설계", "기계설계", "구조설계", "cad", "3d 설계", "2d 도면",
              "상세설계", "도면 작성", "기구 설계", "기계 설계", "설계 인건",
              "mechanical design", "mechanical engineering", "structural design",
@@ -216,7 +219,13 @@ function classifyItem(item, userRules) {
   }
 
   // 2) 우선순위 (사급품/구매품)
+  //    단, 품명/비고에 인건비 성격(설계·조립·셋업·인건 등)이 있으면
+  //    사양의 부품 키워드(예: "제어설계 | PLC/HMI")가 구매품으로 오분류하지 않도록
+  //    구매품 우선 매칭만 건너뜀 (사급품은 명시적 신호이므로 그대로 적용)
+  const laborName = normalizeText(`${item.name || ""} ${item.remark || ""}`);
+  const isLaborItem = /설계|조립|셋업|세팅|인건|시운전|정렬|얼라인|튜닝|레벨링|결선|배선|포설|설치|도면|프로그래밍|개발|테스트|관리비|운송|출장|숙박|배송|포장|보험/.test(laborName);
   for (const pCat of PRIORITY_CATEGORIES) {
+    if (pCat === "구매품" && isLaborItem) continue;
     const kws = CLASSIFICATION_RULES[pCat] || [];
     const matched = kws.filter(kw => normCombined.includes(normalizeText(kw)));
     if (matched.length) {
