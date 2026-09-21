@@ -96,7 +96,7 @@
 </head>
 <body>
 <header>
-  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.3.0 · 업데이트 2026. 9. 21. 오전 8:56</span></h1>
+  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.3.1 · 업데이트 2026. 9. 21. 오후 6:04</span></h1>
   <p>Excel/PDF 견적서 선택 → 자동 분류 → 원가구성 비교 차트 &nbsp;|&nbsp; 🔒 모든 데이터는 이 브라우저 안에서만 처리됩니다 (외부 전송 없음)</p>
 </header>
 
@@ -606,6 +606,12 @@ function renderValidation() {
   });
   const uncl = Object.values(state.files).flatMap(f => f.items).filter(i => i.final_category === "미분류");
   if (uncl.length) issues.push(`⚠️ 미분류 항목 ${uncl.length}개 - 분류 검토 필요`);
+  // 규칙 2: 단가×수량 검증 — 금액이 단가×수량과 불일치하는 항목
+  const mismatch = Object.values(state.files).flatMap(f => f.items).filter(i =>
+    i.quantity > 1 && i.unit_price > 0 &&
+    Math.abs(i.amount - i.quantity * i.unit_price) > Math.max(1, i.quantity * i.unit_price * 0.01)
+  );
+  if (mismatch.length) issues.push(`⚠️ 단가×수량과 금액 불일치 항목 ${mismatch.length}개 (예: ${mismatch.slice(0, 3).map(i => i.name || i.source_row + "행").join(", ")})`);
   if (issues.length) {
     wrap.innerHTML = issues.map(i => `<div class="warn">${i}</div>`).join("");
   }

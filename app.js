@@ -95,12 +95,15 @@ const CLASSIFICATION_RULES = {
              "plc", "hmi", "sensor", "inverter", "breaker", "relay", "switch",
              "terminal", "connector", "power supply", "contactor", "magnetic", "feeder",
              "lamp", "button", "coil", "transformer"],
-  "기구 재료비": ["프레임", "플레이트", "브라켓", "가공품", "알루미늄", "프로파일",
+  "기구 재료비": ["프레임", "플레이트", "플라이트", "플레이트재", "브라켓", "브래킷",
+             "블라켓", "블랙켓", "가공품", "알루미늄", "프로파일",
              "볼트", "너트", "기계 제작", "스페이서", "샤프트", "플랜지", "지지대", "베이스", "커버",
              "하우징", "케이스", "스틸", "강판",
              "frame", "plate", "bracket", "aluminum", "aluminium", "profile",
              "bolt", "nut", "spacer", "shaft", "flange", "base", "cover", "housing", "case", "steel", "machined",
-             "mechanical part", "mechanical material"],
+             "mechanical part", "mechanical material",
+             // 약자 (단어 경계 매칭: matchKw)
+             "plt", "blk", "bkt"],
   "전장·제어 재료비": ["판넬", "전선", "케이블", "전장품",
              "panel", "wire", "cable", "electrical part", "electrical material"],
   "기구설계 인건비": ["기구설계", "기계설계", "구조설계", "cad", "3d 설계", "2d 도면",
@@ -136,6 +139,39 @@ const CLASSIFICATION_RULES = {
 };
 
 const PRIORITY_CATEGORIES = ["사급품", "구매품"];
+
+// 규칙 1: 항목 내용에 명시된 분류 정보(사급/구매품/가공품 등) → 최우선
+// (가공품은 독립 카테고리가 아니라 기구 재료비로 분류)
+const EXPLICIT_CLASSIFICATION = {
+  "사급품": ["사급품", "사급"],
+  "구매품": ["구매품"],
+  "기구 재료비": ["가공품"],
+};
+
+// 규칙 2: 섹션 헤더("구매품 소개", "가공품 소개" 등) → 섹션 내 항목 통일 분류
+const SECTION_CLASSIFICATION = {
+  "구매품": ["구매품"],
+  "기구 재료비": ["가공품"],
+};
+
+// 규칙 3: 품명에 플레이트/브라켓 계열이 있으면 구매품 우선 매칭을 건너뜀
+// (예: "Z-ROBOT-PLATE-1"의 robot, "SENSOR-BKT-1"의 sensor가 구매품으로 오분류하는 것 방지)
+const MECH_PART_GUARD_KWS = [
+  "플레이트", "플라이트", "플레이트재", "브라켓", "브래킷", "블라켓", "블랙켓",
+  "plt", "blk", "bkt", "plate", "bracket",
+];
+
+// 짧은 영문 약자(plt/blk/bkt 등)는 단어 경계로 매칭해 오탐 방지.
+// 품명 표기 관례상 _ 와 - 도 단어 경계로 취급 (예: ROBOT_BASE_PLATE → plate 매칭)
+function matchKw(kw, normText) {
+  const nkw = normalizeText(kw);
+  if (!nkw) return false;
+  if (/^[a-z0-9]+$/.test(nkw) && nkw.length <= 5) {
+    const esc = nkw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp("(?<![a-z0-9])" + esc + "(?![a-z0-9])").test(normText);
+  }
+  return normText.includes(nkw);
+}
 
 // ─── 유틸리티 ────────────────────────────────────────────────
 function normalizeText(text) {
@@ -218,6 +254,24 @@ function classifyItem(item, userRules) {
     }
   }
 
+  // 1-1) 규칙 1: 항목 내용에 명시된 분류 정보(사급/구매품/가공품) → 최우선
+  for (const [cat, kws] of Object.entries(EXPLICIT_CLASSIFICATION)) {
+    const matched = kws.filter(kw => matchKw(kw, normCombined));
+    if (matched.length) {
+      return { category: cat, confidence: 95, keywords: matched, reason: `항목 내용에 '${matched.join(", ")}' 명시 → ${cat}으로 분류` };
+    }
+  }
+
+  // 1-2) 규칙 2: 섹션 헤더("구매품 소개", "가공품 소개" 등) → 섹션 내 항목 통일 분류
+  const normHint0 = normalizeText(item.category_hint);
+  if (normHint0) {
+    for (const [cat, kws] of Object.entries(SECTION_CLASSIFICATION)) {
+      if (kws.some(kw => matchKw(kw, normHint0))) {
+        return { category: cat, confidence: 85, keywords: [item.category_hint], reason: `섹션 '${item.category_hint}' 기준 → ${cat}으로 통일 분류` };
+      }
+    }
+  }
+
   // 2) 우선순위 (사급품/구매품)
   //    단, 품명/비고에 인건비 성격(설계·조립·셋업·인건 등)이 있으면
   //    사양의 부품 키워드(예: "제어설계 | PLC/HMI")가 구매품으로 오분류하지 않도록
@@ -227,7 +281,7 @@ function classifyItem(item, userRules) {
   for (const pCat of PRIORITY_CATEGORIES) {
     if (pCat === "구매품" && isLaborItem) continue;
     const kws = CLASSIFICATION_RULES[pCat] || [];
-    const matched = kws.filter(kw => normCombined.includes(normalizeText(kw)));
+    const matched = kws.filter(kw => matchKw(kw, normCombined));
     if (matched.length) {
       const confidence = Math.min(95, 80 + matched.length * 5);
       return { category: pCat, confidence, keywords: matched, reason: `'${matched.join(", ")}' 키워드로 ${pCat}으로 분류` };
@@ -239,15 +293,15 @@ function classifyItem(item, userRules) {
   for (const category of COST_CATEGORIES) {
     if (category === "미분류") continue;
     const kws = CLASSIFICATION_RULES[category] || [];
-    const matched = kws.filter(kw => normCombined.includes(normalizeText(kw)));
+    const matched = kws.filter(kw => matchKw(kw, normCombined));
     if (matched.length) {
       let score = matched.length * 10;
       const normName = normalizeText(item.name);
-      if (matched.some(kw => normName.includes(normalizeText(kw)))) score += 15;
+      if (matched.some(kw => matchKw(kw, normName))) score += 15;
       const normHint = normalizeText(item.category_hint);
-      if (matched.some(kw => normHint.includes(normalizeText(kw)))) score += 10;
+      if (matched.some(kw => matchKw(kw, normHint))) score += 10;
       // 설계/design 키워드가 품명에 있으면 해당 인건비 분류 우선 (예: "Control Design PLC/HMI" → 제어설계)
-      if (matched.some(kw => /design|설계/.test(kw) && normName.includes(normalizeText(kw)))) score += 25;
+      if (matched.some(kw => /design|설계/.test(kw) && matchKw(kw, normName))) score += 25;
       if (score > bestScore) {
         bestScore = score;
         bestCategory = category;
@@ -293,7 +347,7 @@ function classifyItem(item, userRules) {
   }
 
   const normName = normalizeText(item.name);
-  const nameMatch = bestKeywords.some(kw => normName.includes(normalizeText(kw)));
+  const nameMatch = bestKeywords.some(kw => matchKw(kw, normName));
   const nKw = bestKeywords.length;
   let confidence;
   if (nameMatch && nKw >= 1) confidence = Math.min(95, 90 + nKw * 2);
@@ -304,7 +358,7 @@ function classifyItem(item, userRules) {
   // 여러 분류 동시 해당
   const multiMatches = COST_CATEGORIES.filter(c => {
     if (c === "미분류") return false;
-    return (CLASSIFICATION_RULES[c] || []).some(kw => normCombined.includes(normalizeText(kw)));
+    return (CLASSIFICATION_RULES[c] || []).some(kw => matchKw(kw, normCombined));
   });
   if (multiMatches.length > 1) {
     confidence = Math.max(50, confidence - 15);
@@ -478,7 +532,59 @@ function parseExcelSheet(rows, filename, sheetName, scenario) {
 
   const items = [];
   let originalTotal = 0, taxAmount = 0, totalRowText = "";
-  let sectionHint = ""; // 섹션 컨텍스트: 마지막 섹션 헤더(예: "[3]인건비")를 아래 항목들에 전달
+
+  // 섹션 컨텍스트 사전 계산 (규칙 2):
+  //  - 구분 셀이 있는 행 → 그 아래 항목들에 컨텍스트 전달 (기존)
+  //  - "가공품 소계" 같은 하단 소계 행 → 그 소계가 묶은 위쪽 항목들(이전 소계/섹션 이후)에도 컨텍스트 부여
+  const sectionHintMap = new Array(rows.length).fill("");
+  {
+    // 1) 구분/No 셀에 섹션 마커가 있는 행 기록 + 하단 소계 행(구매품/가공품) 수집
+    // (실제 파일에서 "가공품 소계"는 No 열에 표기되는 경우가 있음)
+    const ownHint = {};
+    const subtotalRows = []; // {row, hint}
+    const markerOf = (row) => {
+      const c = getCell(row, "구분");
+      if (c) return String(c).replace(/\s+/g, "");
+      // No 셀: 섹션 마커 형태(소계, [n] 섹션, Unit명)만 인정 — 일반 항목 번호("1)") 제외
+      const n = getNo(row);
+      if (n) {
+        const h = String(n).replace(/\s+/g, "");
+        if (h.includes("소계") || /^\[\d+\]/.test(h) || h.includes("unit명")) return h;
+      }
+      return "";
+    };
+    for (let r = headerIdx + 1; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const values = row.filter(v => v !== null && v !== undefined && String(v).trim() !== "");
+      if (values.length === 0) continue;
+      const h = markerOf(row);
+      if (h) {
+        ownHint[r] = h;
+        // "소계"가 포함된 행만 하단 소계로 취급 ("구매품 소개" 같은 상단 헤더 제외)
+        if (h.includes("소계") && Object.values(SECTION_CLASSIFICATION).some(kws => kws.some(kw => h.includes(kw)))) {
+          subtotalRows.push({ row: r, hint: h });
+        }
+      }
+    }
+    // 2) 하단 소계 행: 소계가 묶은 위쪽 항목 행(마커 없는 행)에 컨텍스트 부여
+    // 경계 = 소계 직전 중 섹션 마커가 있는 마지막 행
+    for (const st of subtotalRows) {
+      let start = headerIdx;
+      for (let r = st.row - 1; r > headerIdx; r--) {
+        if (ownHint[r]) { start = r; break; }
+      }
+      for (let r = start + 1; r < st.row; r++) {
+        if (!ownHint[r] && !sectionHintMap[r]) sectionHintMap[r] = st.hint;
+      }
+    }
+    // 3) 나머지 행: 마지막 알려진 컨텍스트를 아래로 전파
+    let cur = "";
+    for (let r = headerIdx + 1; r < rows.length; r++) {
+      if (ownHint[r]) cur = ownHint[r];
+      else if (sectionHintMap[r]) cur = sectionHintMap[r];
+      sectionHintMap[r] = cur;
+    }
+  }
 
   for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r] || [];
@@ -495,10 +601,9 @@ function parseExcelSheet(rows, filename, sheetName, scenario) {
     const catHintCell = getCell(row, "구분");
     const vendor = getCell(row, "업체명");
 
-    // 섹션 헤더 행(구분 열 비어있지 않음): 섹션 컨텍스트 갱신
-    // 구분 셀에 줄바꿈이 섞여 있을 수 있음(예: "[2]\n전\n장\n/\n제\n어") → 공백 전부 제거
-    if (catHintCell) sectionHint = String(catHintCell).replace(/\s+/g, "");
-    const catHint = catHintCell ? String(catHintCell).replace(/\s+/g, "") : sectionHint;
+    // 섹션 컨텍스트: 구분 셀이 있으면 그것, 없으면 사전 계산된 섹션 컨텍스트
+    // (셀에 줄바꿈이 섞여 있을 수 있음 → 공백 전부 제거)
+    const catHint = catHintCell ? String(catHintCell).replace(/\s+/g, "") : sectionHintMap[r];
 
     const rowText = values.map(String).join(" ");
     const isTotal = isTotalRow(rowText);
