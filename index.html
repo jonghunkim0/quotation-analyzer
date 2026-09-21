@@ -96,7 +96,7 @@
 </head>
 <body>
 <header>
-  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.3.2 · 업데이트 2026. 9. 21. 오후 7:03</span></h1>
+  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.3.3 · 업데이트 2026. 9. 21. 오후 7:25</span></h1>
   <p>Excel/PDF 견적서 선택 → 자동 분류 → 원가구성 비교 차트 &nbsp;|&nbsp; 🔒 모든 데이터는 이 브라우저 안에서만 처리됩니다 (외부 전송 없음)</p>
 </header>
 
@@ -197,6 +197,9 @@
         </div>
         <div><label>분류 필터</label><select id="filterCat"></select></div>
         <div><label>비교안 필터</label><select id="filterScen"></select></div>
+        <div><label>&nbsp;</label>
+          <button id="btnAiReclassify" class="btn" style="display:none">🤖 AI로 재분류</button>
+        </div>
       </div>
       <div class="tablewrap" style="margin-top:10px">
         <table id="itemsTable">
@@ -420,6 +423,8 @@ async function parseFile(entry) {
     it.auto_category = r.category; it.confidence = r.confidence;
     it.keywords = r.keywords; it.reason = r.reason; it.final_category = r.category;
   });
+  // 유사 항목 전파: 같은 파일에서 이미 분류된 항목과 유사한 미분류 항목을 전파
+  QA.propagateSimilar(entry.items);
   entry.parsed = true;
 }
 
@@ -454,6 +459,7 @@ function renderAll() {
   renderScenarioSelects();
   renderFileList();
   renderRules();
+  updateAiReclassifyBtn();
   if (state.analyzed) {
     renderItemsTable();
     renderSummary();
@@ -889,6 +895,7 @@ function bindEvents() {
     $(id).addEventListener("change", renderChart));
   $("setHighlight").addEventListener("change", e => { state.highlight = e.target.value; renderChart(); });
   ["filterMode","filterCat","filterScen"].forEach(id => $(id).addEventListener("change", renderItemsTable));
+  $("btnAiReclassify").onclick = aiReclassify;
 
   // [분석 시작] 버튼 — 단계별 실행 + 진행률 바
   $("btnAnalyze").onclick = async () => {
@@ -1359,6 +1366,67 @@ function bindEvents() {
   // 💬 분석 도우미
   $("chatSend").onclick = sendChat;
   $("chatInput").addEventListener("keydown", e => { if (e.key === "Enter") sendChat(); });
+}
+
+// ─── 🤖 AI 재분류 (미분류 항목 LLM 분류) ─────────────────────
+function updateAiReclassifyBtn() {
+  const btn = $("btnAiReclassify");
+  if (!btn) return;
+  const unclassified = Object.values(state.files).flatMap(f => f.items)
+    .filter(i => i.final_category === "미분류");
+  btn.style.display = (state.analyzed && unclassified.length) ? "" : "none";
+  btn.textContent = `🤖 AI로 재분류 (${unclassified.length})`;
+}
+
+async function aiReclassify() {
+  const unclassified = Object.values(state.files).flatMap(f => f.items)
+    .filter(i => i.final_category === "미분류");
+  if (!unclassified.length) return;
+  const btn = $("btnAiReclassify");
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = "⏳ AI 분류 중…";
+  try {
+    const list = unclassified.map((it, i) =>
+      `${i + 1}. [섹션: ${it.category_hint || "없음"}] ${it.name} | ${it.spec || ""} | ${it.remark || ""}`).join("\n");
+    const prompt = `아래 견적 항목들을 주어진 분류 중 하나로 분류하라. 품명/사양/섹션 문맥을 종합적으로 판단하고, 표현이 조금 달라도 유사한 내용이면 같은 분류로 묶어라.
+사용 가능한 분류: ${QA.COST_CATEGORIES.filter(c => c !== "미분류").join(", ")}
+
+항목:
+${list}
+
+반드시 아래 JSON 배열 형식으로만 답하라 (다른 설명 없이):
+[{"index":1,"category":"분류명"},...]`;
+    const res = await fetch(CHAT_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + CHAT_API_KEY },
+      body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "user", content: prompt }], max_tokens: 2000, temperature: 0 }),
+    });
+    if (!res.ok) throw new Error("API 오류 (HTTP " + res.status + ")");
+    const data = await res.json();
+    const content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+    const m = content.match(/\[[\s\S]*\]/);
+    if (!m) throw new Error("AI 응답에서 결과를 찾지 못했습니다.");
+    const results = JSON.parse(m[0]);
+    let n = 0;
+    results.forEach(r => {
+      const it = unclassified[(r.index || 0) - 1];
+      if (it && QA.COST_CATEGORIES.includes(r.category)) {
+        it.final_category = r.category;
+        it.confidence = 80;
+        it.reason = "AI 재분류";
+        it.is_modified = true;
+        n++;
+      }
+    });
+    if (n) { renderAll(); alert(`✅ ${n}개 항목을 AI로 재분류했습니다.`); }
+    else alert("⚠️ 적용된 항목이 없습니다. AI 응답을 확인해 주세요.");
+  } catch (e) {
+    alert("AI 재분류 실패: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
 }
 
 // ─── 💬 분석 도우미 (LLM 챗봇) ────────────────────────────────

@@ -240,6 +240,46 @@ function isTotalRow(text) {
   return false;
 }
 
+// ─── 유사 항목 전파 (문맥 기반 분류) ─────────────────────────────────────────
+// 협력사/담당자마다 표현 방식이 달라 키워드로 못 잡은 미분류 항목을,
+// 같은 파일에서 이미 분류된 항목과 문자 2-그램 Dice 유사도로 비교해 전파한다.
+// 섹션(hint)이 같은 매칭은 보너스 → "양산대기 기구" ↔ "양산대응 기구" 같은 오타/약어 대응
+function _bigrams(s) {
+  const set = new Set();
+  for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
+  return set;
+}
+function _dice(a, b) {
+  const A = _bigrams(a), B = _bigrams(b);
+  if (!A.size || !B.size) return 0;
+  let inter = 0;
+  for (const g of A) if (B.has(g)) inter++;
+  return (2 * inter) / (A.size + B.size);
+}
+function propagateSimilar(items) {
+  let count = 0;
+  const classified = items.filter(i => i.final_category && i.final_category !== "미분류");
+  for (const it of items) {
+    if (it.final_category !== "미분류") continue;
+    const text = normalizeText(`${it.name} ${it.spec || ""} ${it.category_hint || ""}`);
+    let best = null, bestScore = 0;
+    for (const ref of classified) {
+      const refText = normalizeText(`${ref.name} ${ref.spec || ""} ${ref.category_hint || ""}`);
+      let score = _dice(text, refText);
+      if (it.category_hint && it.category_hint === ref.category_hint) score += 0.15; // 섹션 동일 보너스
+      if (score > bestScore) { bestScore = score; best = ref; }
+    }
+    if (best && bestScore >= 0.6) {
+      it.auto_category = best.final_category;
+      it.final_category = best.final_category;
+      it.confidence = 70;
+      it.reason = `유사 항목 전파: '${best.name}'`;
+      count++;
+    }
+  }
+  return count;
+}
+
 // ─── 자동 분류 ───────────────────────────────────────────────
 function classifyItem(item, userRules) {
   const texts = [item.name, item.spec, item.remark, item.category_hint].filter(Boolean);
@@ -816,7 +856,7 @@ window.QA = {
   COST_CATEGORIES, COST_GROUPS, GROUP_NAMES, GROUP_COLORS, DEFAULT_STACK_ORDER, CATEGORY_COLORS,
   DEFAULT_SCENARIOS, SUPPLY_OPTIONS, AMOUNT_UNITS,
   normalizeText, parseAmount, formatAmount, autoDetectUnit, safeDivide,
-  classifyItem, aggregateScenario, groupTotals, computeDeltas,
+  classifyItem, propagateSimilar, aggregateScenario, groupTotals, computeDeltas,
   parseExcelSheet, parsePDF,
   loadRules, saveRules, learnFromCorrection,
   toCSV, downloadCSV, exportExcel,
