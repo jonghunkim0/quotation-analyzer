@@ -7,14 +7,14 @@
 const COST_CATEGORIES = [
   "기구 재료비", "전장·제어 재료비", "사급품", "구매품",
   "기구설계 인건비", "제어설계 인건비", "조립 인건비",
-  "셋업 인건비(기구)", "셋업 인건비(제어)", "셋업 인건비(전장)",
+  "셋업 인건비(기구)", "셋업 인건비(제어)", "셋업 인건비(전장)", "양산대응 인건비",
   "경비", "마진", "미분류",
 ];
 
 const COST_GROUPS = {
   "재료비": ["기구 재료비", "전장·제어 재료비", "구매품", "사급품"],
   "인건비": ["기구설계 인건비", "제어설계 인건비", "조립 인건비",
-             "셋업 인건비(기구)", "셋업 인건비(제어)", "셋업 인건비(전장)", "경비"],
+             "셋업 인건비(기구)", "셋업 인건비(제어)", "셋업 인건비(전장)", "양산대응 인건비", "경비"],
   "기업이윤": ["마진"],
   "기타": ["미분류"],
 };
@@ -31,7 +31,7 @@ const GROUP_COLORS = {
 const DEFAULT_STACK_ORDER = [
   "기구 재료비", "전장·제어 재료비", "구매품", "사급품",
   "기구설계 인건비", "제어설계 인건비", "조립 인건비",
-  "셋업 인건비(기구)", "셋업 인건비(제어)", "셋업 인건비(전장)",
+  "셋업 인건비(기구)", "셋업 인건비(제어)", "셋업 인건비(전장)", "양산대응 인건비",
   "경비", "마진", "미분류",
 ];
 
@@ -41,6 +41,7 @@ const CATEGORY_COLORS = {
   "기구설계 인건비": "#F97316", "제어설계 인건비": "#C2410C",
   "조립 인건비": "#FACC15", "셋업 인건비(기구)": "#86EFAC",
   "셋업 인건비(제어)": "#22C55E", "셋업 인건비(전장)": "#15803D",
+  "양산대응 인건비": "#0EA5E9",
   "경비": "#64748B", "마진": "#EF4444", "미분류": "#1F2937",
 };
 
@@ -119,17 +120,19 @@ const CLASSIFICATION_RULES = {
              "조립 공수", "조립 인건", "설치 인건",
              "assembly", "assemble", "installation labor"],
   "셋업 인건비(기구)": ["기구 셋업", "기계 셋업", "기구 조정", "얼라인", "정밀 조정",
-             "기구 튜닝", "레벨링", "기구 세팅", "정렬",
+             "기구 튜닝", "레벨링", "기구 세팅", "정렬", "셋업기구엔지니어",
              "mechanical setup", "mechanical alignment", "align", "leveling",
              "mechanical tuning"],
   "셋업 인건비(제어)": ["프로그램 셋업", "제어 셋업", "시운전", "디버깅", "제어 튜닝",
-             "plc 셋업", "hmi 셋업", "제어 세팅", "동작 테스트",
+             "plc 셋업", "hmi 셋업", "제어 세팅", "동작 테스트", "셋업제어엔지니어",
              "control setup", "commissioning", "test run", "debugging",
              "control tuning", "operation test"],
   "셋업 인건비(전장)": ["현장 배선", "전장 셋업", "판넬 설치", "판넬 결선",
-             "케이블 포설", "입출력 확인", "전장 공사", "배선", "결선",
+             "케이블 포설", "입출력 확인", "전장 공사", "배선", "결선", "셋업전장엔지니어",
              "field wiring", "electrical setup", "panel installation",
              "cable laying", "wiring", "electrical work"],
+  "양산대응 인건비": ["양산대응", "양산 대응", "양산인건", "양산 인건",
+             "mass production", "mp response"],
   "경비": ["운송비", "출장비", "숙박비", "교통비", "포장비", "안전관리비",
              "일반관리비", "보험료", "설치 경비", "현장 경비", "배송비", "운반비",
              "관리비", "경비",
@@ -315,6 +318,10 @@ function classifyItem(item, userRules) {
   //    번호([1], [2]...)에 의존하지 않고 섹션 이름의 키워드로 판단 → 협력사별 양식 차이 대응
   if (bestCategory === "미분류") {
     const hint = normalizeText(item.category_hint);
+    // 양산대응 섹션 → 양산대응 인건비 (기구/전장 등 다른 폴백보다 우선)
+    if (/양산/.test(hint)) {
+      return { category: "양산대응 인건비", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
+    }
     const hasMech = /기구|기계|구조|mechanical|structure/.test(hint);
     const hasElec = /전장|제어|전기|electrical|electric|control/.test(hint);
     if (hasMech && !hasElec) {
@@ -438,8 +445,9 @@ function computeDeltas(scenarios) {
 }
 
 // ─── Excel 파싱 (SheetJS) ────────────────────────────────────
-function parseExcelSheet(rows, filename, sheetName, scenario) {
+function parseExcelSheet(rows, filename, sheetName, scenario, sumRows) {
   // rows: 2D array (header=None equivalent)
+  // sumRows: Set(0-based 행 인덱스) — 다른 행을 참조하는 합산 수식 행 (분류 제외)
   // 헤더 행 탐지
   let headerIdx = -1, bestScore = 0;
   const maxScan = Math.min(15, rows.length);
@@ -604,6 +612,10 @@ function parseExcelSheet(rows, filename, sheetName, scenario) {
     // 섹션 컨텍스트: 구분 셀이 있으면 그것, 없으면 사전 계산된 섹션 컨텍스트
     // (셀에 줄바꿈이 섞여 있을 수 있음 → 공백 전부 제거)
     const catHint = catHintCell ? String(catHintCell).replace(/\s+/g, "") : sectionHintMap[r];
+
+    // 합산 수식 행 스킵 (예: 금액 셀이 =I18+I27 — 소계 합산 표기 행은 견적 항목이 아님)
+    // 같은 행의 =단가*수량 수식은 실제 항목이므로 유지
+    if (sumRows && sumRows.has(r)) continue;
 
     const rowText = values.map(String).join(" ");
     const isTotal = isTotalRow(rowText);

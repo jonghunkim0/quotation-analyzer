@@ -96,7 +96,7 @@
 </head>
 <body>
 <header>
-  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.3.1 · 업데이트 2026. 9. 21. 오후 6:04</span></h1>
+  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.3.2 · 업데이트 2026. 9. 21. 오후 7:03</span></h1>
   <p>Excel/PDF 견적서 선택 → 자동 분류 → 원가구성 비교 차트 &nbsp;|&nbsp; 🔒 모든 데이터는 이 브라우저 안에서만 처리됩니다 (외부 전송 없음)</p>
 </header>
 
@@ -372,8 +372,28 @@ async function parseFile(entry) {
       entry.buf = buf; // 원본 버퍼 보존 (견적항목 내보내기 시 원본에 분류 기록)
       const wb = XLSX.read(buf, { type: "array" });
       const sheetName = wb.SheetNames[0];
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: null });
-      const res = QA.parseExcelSheet(rows, entry.name, sheetName, "견적가");
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+      // 합산 수식 행 수집: 수식이 다른 행을 참조하면 합산 표기 행 → 분류 제외
+      // (같은 행의 =단가*수량 같은 수식은 실제 항목이므로 유지)
+      const sumRows = new Set();
+      if (ws["!ref"]) {
+        const fr = XLSX.utils.decode_range(ws["!ref"]);
+        const refRe = /(?<![A-Za-z0-9_])([A-Z]{1,3})(\d+)/g;
+        for (let rr = fr.s.r; rr <= fr.e.r; rr++) {
+          for (let cc = fr.s.c; cc <= fr.e.c; cc++) {
+            const cell = ws[XLSX.utils.encode_cell({ r: rr, c: cc })];
+            if (!cell || !cell.f) continue;
+            refRe.lastIndex = 0;
+            let m, crossRow = false;
+            while ((m = refRe.exec(String(cell.f))) !== null) {
+              if (parseInt(m[2], 10) !== rr + 1) { crossRow = true; break; }
+            }
+            if (crossRow) sumRows.add(rr);
+          }
+        }
+      }
+      const res = QA.parseExcelSheet(rows, entry.name, sheetName, "견적가", sumRows);
       if (res.error) { entry.error = res.error; }
       else {
         entry.items = res.items; entry.originalTotal = res.originalTotal;
