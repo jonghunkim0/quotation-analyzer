@@ -7,12 +7,15 @@ import zipfile
 from pathlib import Path
 
 BASE = Path(__file__).parent
-ZIP_NAME = BASE / "quotation-analyzer-v1.0.zip"
+
+# 앱 버전 (app.py의 APP_VERSION과 동기화)
+APP_VERSION = "1.3.5"
+ZIP_NAME = BASE / f"quotation-analyzer-v{APP_VERSION}.zip"
 
 # 제외할 디렉터리/파일 패턴
 EXCLUDE_DIRS = {"__pycache__", ".venv", "venv", ".git", "node_modules"}
 EXCLUDE_FILES = {
-    "quotation-analyzer-v1.0.zip",
+    f"quotation-analyzer-v{APP_VERSION}.zip",
     "cost_chart.png",
 }
 # 제외할 폴더 경로

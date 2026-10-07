@@ -53,10 +53,15 @@ class Aggregator:
 
         # 그룹 합계
         supply_total = category_totals.get("사급품", 0.0)
-        purchase_total = category_totals.get("구매품", 0.0)
+        purchase_total = (
+            category_totals.get("기구 구매품", 0.0)
+            + category_totals.get("제어 구매품", 0.0)
+            + category_totals.get("전장 구매품", 0.0)
+        )
 
         material_cats = COST_GROUPS["재료비"]
         labor_cats = COST_GROUPS["인건비"]
+        expense_cats = COST_GROUPS["경비"]
 
         # 사급품 처리 옵션에 따른 계산
         supply_in_material = self.supply_option in (
@@ -83,8 +88,8 @@ class Aggregator:
         # 인건비 합계
         labor_total = sum(category_totals[c] for c in labor_cats)
 
-        # 경비, 마진
-        expense_total = category_totals.get("경비", 0.0)
+        # 경비, 마진, 미분류
+        expense_total = sum(category_totals[c] for c in expense_cats)
         margin_total = category_totals.get("마진", 0.0)
         unclassified_total = category_totals.get("미분류", 0.0)
 

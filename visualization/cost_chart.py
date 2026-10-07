@@ -24,6 +24,9 @@ from config import (
 )
 from utils.helpers import format_amount, safe_divide
 
+# 그룹 표시명 (데이터 키와 다른 표시용)
+GROUP_DISPLAY_NAMES = {"재료비": "재료비(가공품)"}
+
 
 class CostCompositionChart:
     """원가구성 비교 대시보드 차트 생성기"""
@@ -88,133 +91,338 @@ class CostCompositionChart:
             cats.append(cat)
         return cats
 
-    def build(self) -> go.Figure:
-        """차트 Figure 생성"""
-        fig = make_subplots(specs=[[{"secondary_y": self.show_material_rate}]])
+    # ─── 1차: 그룹별 합계 계산 ────────────────────────────────
+    def _group_totals(self) -> tuple:
+        """1차 차트용 그룹 합계 계산
+        Returns: (group_order, group_totals, group_colors)
+        """
+        from config import COST_GROUPS
 
-        visible_cats = self._visible_categories()
+        group_order = ["사급품", "구매품", "재료비", "인건비", "경비", "기타"]
+        group_colors = {
+            "사급품": "#0D9488",
+            "구매품": "#4472C4",
+            "재료비": "#5B9BD5",
+            "인건비": "#C0504D",
+            "경비": "#9BBB59",
+            "기타": "#8064A2",
+        }
+
+        # 1차 그룹 → 포함할 21개 분류 매핑
+        group_map = {
+            "사급품": ["사급품"],
+            "구매품": ["기구 구매품", "제어 구매품", "전장 구매품"],
+            "재료비": ["기구 가공품", "전장 가공품"],
+            "인건비": [
+                "인건비-기구 설계", "인건비-전장 설계", "인건비-제어 설계",
+                "인건비-기구 조립", "인건비-전장/제어 조립",
+                "인건비-기구 셋업", "인건비-전장/제어 셋업",
+                "인건비-기구 양산대응", "인건비-전장/제어 양산대응",
+                "인건비-특수제어",
+            ],
+            "경비": ["경비-포장", "경비-기타", "경비-숙박/교통/항공"],
+            "기타": ["마진", "미분류"],
+        }
+
         n_scen = len(self.scenarios)
-        x_labels = [s.name for s in self.scenarios]
+        group_totals = {g: [0.0] * n_scen for g in group_order}
+        for i, s in enumerate(self.scenarios):
+            for g_name, cats in group_map.items():
+                for cat in cats:
+                    group_totals[g_name][i] += self._to_unit(
+                        s.category_totals.get(cat, 0.0)
+                    )
 
-        # ── 1. 누적 막대 ──────────────────────────────────────
-        cumulative = [0.0] * n_scen  # 각 비교안의 누적 상단 (연결선용)
-        cat_top_bounds = {}  # {category: [top_bound per scenario]}
-        cat_bottom_bounds = {}
+        return group_order, group_totals, group_colors
 
-        for cat in visible_cats:
-            values = []
-            for s in self.scenarios:
-                val = s.category_totals.get(cat, 0.0)
-                values.append(self._to_unit(val))
+    # ─── 2차: 세부 분류 합계 계산 ─────────────────────────────
+    def _detail_totals(self) -> tuple:
+        """2차 차트용 세부 분류 합계 계산
+        Returns: (detail_order, detail_totals, detail_colors)
+        """
+        detail_order = [
+            "기구 구매품", "제어 구매품", "전장 구매품",
+            "기구 가공품", "전장 가공품",
+            "인건비-기구 설계", "인건비-전장 설계", "인건비-제어 설계",
+            "인건비-기구 조립", "인건비-전장/제어 조립",
+            "인건비-기구 셋업", "인건비-전장/제어 셋업",
+            "인건비-기구 양산대응", "인건비-전장/제어 양산대응",
+            "인건비-특수제어",
+            "경비-포장", "경비-기타", "경비-숙박/교통/항공",
+        ]
+        detail_colors = {
+            "기구 구매품": "#4472C4",
+            "제어 구매품": "#5B9BD5",
+            "전장 구매품": "#8FAADC",
+            "기구 가공품": "#A5A5A5",
+            "전장 가공품": "#C0504D",
+            "인건비-기구 설계": "#F79646",
+            "인건비-전장 설계": "#FDB26E",
+            "인건비-제어 설계": "#FFD966",
+            "인건비-기구 조립": "#9BBB59",
+            "인건비-전장/제어 조립": "#BDDA7E",
+            "인건비-기구 셋업": "#255E91",
+            "인건비-전장/제어 셋업": "#4472C4",
+            "인건비-기구 양산대응": "#8064A2",
+            "인건비-전장/제어 양산대응": "#977DAB",
+            "인건비-특수제어": "#4BACC6",
+            "경비-포장": "#F2F2F2",
+            "경비-기타": "#D9D9D9",
+            "경비-숙박/교통/항공": "#BFBFBF",
+        }
 
-            # 누적 기준 (이전 분류들의 합)
+        n_scen = len(self.scenarios)
+        detail_totals = {c: [0.0] * n_scen for c in detail_order}
+        for i, s in enumerate(self.scenarios):
+            for cat in detail_order:
+                detail_totals[cat][i] = self._to_unit(
+                    s.category_totals.get(cat, 0.0)
+                )
+
+        return detail_order, detail_totals, detail_colors
+
+    # ─── 공통: 누적 막대 + 레이블 생성 ────────────────────────
+    def _build_stacked_bar(
+        self,
+        fig: go.Figure,
+        order: list,
+        totals: dict,
+        colors: dict,
+        x_labels: list,
+        title: str,
+        height: int = 500,
+        display_names: Optional[dict] = None,
+    ) -> go.Figure:
+        """공통 누적 막대 그래프 생성"""
+        display_names = display_names or {}
+        n_scen = len(x_labels)
+        cumulative = [0.0] * n_scen
+
+        for name in order:
+            disp = display_names.get(name, name)
+            values = totals[name]
+            if all(v == 0 for v in values):
+                continue
+
             base = list(cumulative)
-            # 막대 추가
+            # hover에 실제 금액 표시 (customdata)
+            customdata = [[f"{v:.{self.decimals}f} {self.unit}"] for v in values]
             fig.add_trace(
                 go.Bar(
                     x=x_labels,
                     y=values,
-                    name=cat,
+                    name=disp,
                     orientation="v",
                     base=base,
-                    marker_color=CATEGORY_COLORS.get(cat, "#999999"),
+                    marker_color=colors.get(name, "#999999"),
+                    customdata=customdata,
                     hovertemplate=(
                         f"<b>%{{x}}</b><br>"
-                        f"분류: {cat}<br>"
-                        f"금액: %{{y:.{self.decimals}f}} {self.unit}<br>"
+                        f"분류: {disp}<br>"
+                        f"금액: %{{customdata[0]}}<br>"
                         "<extra></extra>"
                     ),
-                    legendgroup=cat,
+                    legendgroup=name,
                 ),
-                secondary_y=False,
             )
 
-            # 누적 경계 기록
-            tops = []
-            bottoms = []
-            for i in range(n_scen):
-                bottoms.append(base[i])
-                tops.append(base[i] + values[i])
-            cat_top_bounds[cat] = tops
-            cat_bottom_bounds[cat] = bottoms
             for i in range(n_scen):
                 cumulative[i] = base[i] + values[i]
 
-        # ── 2. 선택 비교안 강조 테두리 ────────────────────────
-        if self.highlight in x_labels:
-            idx = x_labels.index(self.highlight)
-            max_val = cumulative[idx]
-            fig.add_shape(
-                type="rect",
-                x0=idx - 0.4,
-                x1=idx + 0.4,
-                y0=0,
-                y1=max_val * 1.02,
-                line=dict(color=HIGHLIGHT_BORDER_COLOR, width=3),
-                fillcolor="rgba(220,38,38,0.04)",
-                layer="above",
-                secondary_y=False,
-            )
+        # 세그먼트 레이블
+        for name in order:
+            values = totals[name]
+            if all(v == 0 for v in values):
+                continue
+            # base 재계산
+            seg_base = [0.0] * n_scen
+            for prev in order:
+                if prev == name:
+                    break
+                for i in range(n_scen):
+                    seg_base[i] += totals[prev][i]
 
-        # ── 3. 세그먼트 레이블 (금액 + 구성비) ────────────────
-        self._add_segment_labels(fig, visible_cats, x_labels)
+            for i in range(n_scen):
+                val = values[i]
+                if val == 0:
+                    continue
+                total = cumulative[i]
+                ratio = (val / total * 100) if total > 0 else 0
+                y_pos = seg_base[i] + val / 2
+                label = f"{val:.1f}{self.unit} ({ratio:.1f}%)"
+                fig.add_annotation(
+                    x=i,
+                    y=y_pos,
+                    text=label,
+                    showarrow=False,
+                    font=dict(size=10, color="black"),
+                    xanchor="center",
+                    yanchor="middle",
+                )
 
-        # ── 4. 상단 KPI ───────────────────────────────────────
-        self._add_kpi(fig, x_labels)
-
-        # ── 5. 재료비율 추세선 (보조 Y축) ─────────────────────
-        if self.show_material_rate:
-            self._add_material_rate_line(fig, x_labels)
-
-        # ── 6. 비교안 간 연결선 ───────────────────────────────
-        if self.show_connection_lines:
-            self._add_connection_lines(fig, visible_cats, x_labels)
-
-        # ── 7. 증감 Callout ───────────────────────────────────
-        if self.show_deltas:
-            self._add_delta_callouts(fig, x_labels)
-
-        # ── 8. 축 설정 ────────────────────────────────────────
         max_y = max(cumulative) if cumulative else 1
+        grand_total = sum(cumulative) if cumulative else 0.0
+        # cumulative는 이미 _to_unit()으로 단위 변환된 값 → _fmt 사용 불가
         fig.update_layout(
             title=dict(
-                text="원가구성 비교 대시보드",
+                text=title,
                 x=0.5,
-                font=dict(size=20),
+                xanchor="center",
+                font=dict(size=16),
+                subtitle=dict(
+                    text=f"총합계: {grand_total:,.{self.decimals}f}{self.unit}",
+                    font=dict(size=11, color="gray"),
+                ),
             ),
-            xaxis=dict(title="비교안"),
+            xaxis=dict(title=""),
             yaxis=dict(
                 title=f"금액 ({self.unit})",
-                range=[0, max_y * 1.35],  # KPI 공간 확보
+                range=[0, max_y * 1.15],
             ),
+            barmode="stack",
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1,
+                y=-0.2,
+                xanchor="center",
+                x=0.5,
+                font=dict(size=10),
             ),
-            height=700,
-            margin=dict(l=60, r=60, t=120, b=60),
+            height=height,
+            margin=dict(l=60, r=30, t=70, b=100),
             hovermode="closest",
         )
 
-        if self.show_material_rate:
-            fig.update_layout(
-                yaxis2=dict(
-                    title="재료비율 (%)",
-                    overlaying="y",
-                    side="right",
-                    range=[0, 100],
-                    showgrid=False,
-                )
-            )
-
-        # 선택하지 않은 비교안 흐림 처리 (막대 투명도)
-        if self.dim_unselected and self.highlight in x_labels:
-            self._dim_unselected(fig)
-
         return fig
+
+    def build(self) -> go.Figure:
+        """1차 차트: 비용 그룹 비교 (사급품/구매품/재료비/인건비/경비/기타)"""
+        fig = go.Figure()
+        x_labels = [s.name for s in self.scenarios]
+        group_order, group_totals, group_colors = self._group_totals()
+        return self._build_stacked_bar(
+            fig, group_order, group_totals, group_colors, x_labels,
+            title="① 1차: 비용 그룹 비교 (사급품 / 구매품 / 재료비(가공품) / 인건비 / 경비 / 기타)",
+            display_names=GROUP_DISPLAY_NAMES,
+        )
+
+    def build_detail(self) -> list:
+        """2차 차트: 구매품/재료비/인건비/경비 각각의 세부 분류 막대 그래프"""
+        from plotly.subplots import make_subplots
+
+        detail_order, detail_totals, detail_colors = self._detail_totals()
+        x_labels = [s.name for s in self.scenarios]
+
+        # 4개 그룹으로 분리
+        sub_groups = {
+            "구매품": ["기구 구매품", "제어 구매품", "전장 구매품"],
+            "재료비": ["기구 가공품", "전장 가공품"],
+            "인건비": [
+                "인건비-기구 설계", "인건비-전장 설계", "인건비-제어 설계",
+                "인건비-기구 조립", "인건비-전장/제어 조립",
+                "인건비-기구 셋업", "인건비-전장/제어 셋업",
+                "인건비-기구 양산대응", "인건비-전장/제어 양산대응",
+                "인건비-특수제어",
+            ],
+            "경비": ["경비-포장", "경비-기타", "경비-숙박/교통/항공"],
+        }
+
+        figs = []
+        for group_name, cats in sub_groups.items():
+            # 이 그룹에 데이터가 있는지 확인
+            has_data = any(
+                detail_totals[cat][i] != 0
+                for cat in cats
+                for i in range(len(x_labels))
+            )
+            if not has_data:
+                continue
+
+            disp = GROUP_DISPLAY_NAMES.get(group_name, group_name)
+            fig = go.Figure()
+            # 이 그룹의 세부 분류만 누적 막대로
+            cumulative = [0.0] * len(x_labels)
+            for cat in cats:
+                values = detail_totals[cat]
+                if all(v == 0 for v in values):
+                    continue
+                base = list(cumulative)
+                customdata = [[f"{v:.{self.decimals}f} {self.unit}"] for v in values]
+                fig.add_trace(
+                    go.Bar(
+                        x=x_labels,
+                        y=values,
+                        name=cat,
+                        orientation="v",
+                        base=base,
+                        marker_color=detail_colors.get(cat, "#999999"),
+                        customdata=customdata,
+                        hovertemplate=(
+                            f"<b>%{{x}}</b><br>"
+                            f"분류: {cat}<br>"
+                            f"금액: %{{customdata[0]}}<br>"
+                            "<extra></extra>"
+                        ),
+                        legendgroup=cat,
+                    ),
+                )
+                for i in range(len(x_labels)):
+                    cumulative[i] = base[i] + values[i]
+
+            # 세그먼트 레이블
+            for cat in cats:
+                values = detail_totals[cat]
+                if all(v == 0 for v in values):
+                    continue
+                seg_base = [0.0] * len(x_labels)
+                for prev in cats:
+                    if prev == cat:
+                        break
+                    for i in range(len(x_labels)):
+                        seg_base[i] += detail_totals[prev][i]
+                for i in range(len(x_labels)):
+                    val = values[i]
+                    if val == 0:
+                        continue
+                    total = cumulative[i]
+                    ratio = (val / total * 100) if total > 0 else 0
+                    y_pos = seg_base[i] + val / 2
+                    label = f"{val:.1f}{self.unit} ({ratio:.1f}%)"
+                    fig.add_annotation(
+                        x=i, y=y_pos, text=label,
+                        showarrow=False,
+                        font=dict(size=10, color="black"),
+                        xanchor="center", yanchor="middle",
+                    )
+
+            max_y = max(cumulative) if cumulative else 1
+            grand_total = sum(cumulative) if cumulative else 0.0
+            # cumulative는 이미 _to_unit()으로 단위 변환된 값 → _fmt 사용 불가
+            fig.update_layout(
+                title=dict(
+                    text=f"② 2차: {disp} 세부 분류",
+                    x=0.5,
+                    xanchor="center",
+                    font=dict(size=14),
+                    subtitle=dict(
+                        text=f"총합계: {grand_total:,.{self.decimals}f}{self.unit}",
+                        font=dict(size=11, color="gray"),
+                    ),
+                ),
+                xaxis=dict(title=""),
+                yaxis=dict(title=f"금액 ({self.unit})", range=[0, max_y * 1.15]),
+                barmode="stack",
+                legend=dict(
+                    orientation="h", yanchor="bottom", y=-0.25,
+                    xanchor="center", x=0.5, font=dict(size=9),
+                ),
+                height=400,
+                margin=dict(l=60, r=30, t=50, b=90),
+                hovermode="closest",
+            )
+            figs.append(fig)
+
+        return figs
 
     # ─── 세그먼트 레이블 ─────────────────────────────────────
     def _add_segment_labels(self, fig, cats, x_labels):

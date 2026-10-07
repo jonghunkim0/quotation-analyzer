@@ -39,6 +39,7 @@ class QuotationItem:
     remark: str = ""                # 비고
     category_hint: str = ""         # 원본 구분/분류 열
     vendor: str = ""                # 업체명
+    raw_row_text: str = ""          # 원본 행 전체 셀 텍스트 (분류 참고용, skip 없음)
     # 자동 분류 결과
     auto_category: str = "미분류"
     confidence: float = 0.0         # 0~100

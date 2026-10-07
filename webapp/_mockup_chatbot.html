@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Chatbot Mockup</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --border: #e5e7eb; --text: #1f2937;
+    --muted: #6b7280; --primary: #2563eb; --danger: #dc2626; --ok: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+         background: var(--bg); color: var(--text); font-size: 14px; }
+  header { background: #111827; color: #fff; padding: 14px 24px; }
+  header h1 { margin: 0; font-size: 18px; }
+  header h1 .ver { font-size: 11px; font-weight: normal; color: #9ca3af; margin-left: 8px; vertical-align: middle; }
+  header p { margin: 4px 0 0; font-size: 12px; color: #9ca3af; }
+  .layout { display: flex; gap: 16px; padding: 16px; align-items: flex-start; }
+  .sidebar { width: 260px; flex-shrink: 0; }
+  .main { flex: 1; min-width: 0; }
+  .card { background: var(--card); border: 1px solid var(--border);
+          border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; padding-bottom: 8px;
+             border-bottom: 1px solid var(--border); }
+  .card h3 { font-size: 13px; margin: 14px 0 8px; color: var(--muted); }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+  select, input[type=text], input[type=number] {
+    width: 100%; padding: 6px 8px; border: 1px solid var(--border);
+    border-radius: 6px; font-size: 13px; background: #fff; }
+  .check { display: flex; align-items: center; gap: 6px; margin: 6px 0; font-size: 13px; }
+  .check input { width: auto; }
+  button { padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px;
+           background: #fff; cursor: pointer; font-size: 13px; }
+  button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .muted { color: var(--muted); font-size: 12px; }
+  .placeholder { border: 2px dashed var(--border); border-radius: 8px;
+                 padding: 40px; text-align: center; color: var(--muted); }
+
+  /* ─── Chatbot ─── */
+  .chat { display: flex; flex-direction: column; }
+  .chat-log { height: 240px; overflow-y: auto; background: #f9fafb;
+              border: 1px solid var(--border); border-radius: 6px;
+              padding: 8px; margin-bottom: 8px; }
+  .msg { max-width: 88%; padding: 6px 10px; border-radius: 10px;
+         font-size: 12px; line-height: 1.5; margin-bottom: 6px; word-break: keep-all; }
+  .msg.bot { background: #fff; border: 1px solid var(--border);
+             border-bottom-left-radius: 3px; }
+  .msg.user { background: var(--primary); color: #fff; margin-left: auto;
+              border-bottom-right-radius: 3px; }
+  .msg .ok { color: var(--ok); font-weight: 600; }
+  .chat-input { display: flex; gap: 6px; }
+  .chat-input input { flex: 1; min-width: 0; }
+  .chat-input button { flex-shrink: 0; padding: 6px 12px; }
+  .chat-hint { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .chat-hint b { color: #374151; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.2.0 (미리보기)</span></h1>
+  <p>Excel/PDF 견적서 선택 → 자동 분류 → 원가구성 비교 차트 &nbsp;|&nbsp; 🔒 모든 데이터는 이 브라우저 안에서만 처리됩니다 (외부 전송 없음)</p>
+</header>
+
+<div class="layout">
+  <div class="sidebar">
+    <!-- 설정 카드 (기존) -->
+    <div class="card">
+      <h2>⚙️ 설정</h2>
+      <label>표시 단위</label>
+      <select><option>원</option><option>천원</option><option selected>백만원</option><option>억원</option></select>
+      <label>소수점 자릿수</label>
+      <input type="number" value="1">
+      <label>사급품 처리</label>
+      <select><option selected>사급품을 재료비율에 포함</option></select>
+      <h3>차트 옵션</h3>
+      <div class="check"><input type="checkbox" checked><label style="margin:0">재료비율 추세선</label></div>
+      <div class="check"><input type="checkbox" checked><label style="margin:0">비교안 연결선</label></div>
+      <div class="check"><input type="checkbox" checked><label style="margin:0">증감 Callout</label></div>
+      <h3>강조 비교안</h3>
+      <select><option>견적가</option></select>
+    </div>
+
+    <!-- ─── NEW: Chatbot 카드 ─── -->
+    <div class="card chat">
+      <h2>💬 분석 도우미</h2>
+      <div class="chat-log" id="chatLog">
+        <div class="msg bot">안녕하세요! 분석 데이터 수정을 요청해 주세요.<br>예: <b>“50번째 항목은 기구 재료비로 반영해줘”</b></div>
+        <div class="msg user">50번째 항목은 기구 재료비로 반영해줘</div>
+        <div class="msg bot"><span class="ok">✅</span> 50번 항목 <b>“알루미늄 프레임”</b>을<br>기구 재료비로 변경했습니다.</div>
+        <div class="msg user">미분류 항목 몇 개 있어?</div>
+        <div class="msg bot">미분류 항목 <b>3개</b>입니다.<br>12번, 45번, 88번 항목입니다.</div>
+        <div class="msg user">재료비 총액 알려줘</div>
+        <div class="msg bot">재료비 총액: <b>128.5백만원</b><br>(기구 96.2 / 전장·제어 32.3)</div>
+      </div>
+      <div class="chat-input">
+        <input type="text" placeholder="요청을 입력하세요...">
+        <button class="primary">전송</button>
+      </div>
+      <div class="chat-hint">
+        <b>사용 예시</b><br>
+        · 50번째 항목은 기구 재료비로 반영해줘<br>
+        · 12~15번 항목은 경비로 바꿔줘<br>
+        · 미분류 항목 보여줘<br>
+        · 재료비 총액 알려줘
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="card">
+      <h2>1. 파일 선택</h2>
+      <div class="placeholder">📁 견적 파일을 클릭해서 선택하거나 끌어다 놓으세요</div>
+    </div>
+    <div class="card">
+      <h2>2. 견적 항목 및 분류 검토</h2>
+      <div class="placeholder">[분석 시작]을 누르면 항목이 표시됩니다.</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -24,8 +24,8 @@ def _item(name, amount, category):
 
 def test_basic_aggregation():
     items = [
-        _item("프레임", 3_000_000, "기구 재료비"),
-        _item("PLC", 2_500_000, "전장·제어 재료비"),
+        _item("프레임", 3_000_000, "기구 가공품"),
+        _item("PLC", 2_500_000, "전장 가공품"),
         _item("조립", 5_000_000, "조립 인건비"),
         _item("마진", 2_000_000, "마진"),
     ]
@@ -43,20 +43,20 @@ def test_basic_aggregation():
 
 def test_supply_excluded():
     items = [
-        _item("프레임", 3_000_000, "기구 재료비"),
+        _item("프레임", 3_000_000, "기구 가공품"),
         _item("사급품", 1_000_000, "사급품"),
         _item("조립", 5_000_000, "조립 인건비"),
     ]
     # 사급품 재료비율에서 제외
     agg = Aggregator(supply_option="사급품을 재료비율에서 제외")
     s = agg.aggregate_scenario("견적가", items)
-    # 재료비 = 기구 재료비만 (사급품 제외)
+    # 재료비 = 기구 가공품만 (사급품 제외)
     assert s.material_total == 3_000_000
 
 
 def test_supply_included():
     items = [
-        _item("프레임", 3_000_000, "기구 재료비"),
+        _item("프레임", 3_000_000, "기구 가공품"),
         _item("사급품", 1_000_000, "사급품"),
         _item("조립", 5_000_000, "조립 인건비"),
     ]
@@ -66,20 +66,20 @@ def test_supply_included():
 
 
 def test_delta():
-    items1 = [_item("프레임", 3_000_000, "기구 재료비")]
-    items2 = [_item("프레임", 2_000_000, "기구 재료비")]
+    items1 = [_item("프레임", 3_000_000, "기구 가공품")]
+    items2 = [_item("프레임", 2_000_000, "기구 가공품")]
     agg = Aggregator()
     s1 = agg.aggregate_scenario("견적가", items1)
     s2 = agg.aggregate_scenario("구매 목표가", items2)
     deltas = agg.compute_deltas([s1, s2])
     assert len(deltas) == 1
-    mech = [d for d in deltas[0] if d["category"] == "기구 재료비"][0]
+    mech = [d for d in deltas[0] if d["category"] == "기구 가공품"][0]
     assert mech["delta_amount"] == -1_000_000
     assert abs(mech["delta_rate"] - (-33.33)) < 0.1
 
 
 def test_validator_total_mismatch():
-    items = [_item("프레임", 3_000_000, "기구 재료비")]
+    items = [_item("프레임", 3_000_000, "기구 가공품")]
     agg = Aggregator()
     s = agg.aggregate_scenario("견적가", items)
     # 총액을 의도적으로 틀리게

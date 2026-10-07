@@ -101,11 +101,18 @@ def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> f
 
 
 def match_column(header: str, aliases: list) -> bool:
-    """열 이름이 별칭 목록과 일치하는지 확인"""
+    """열 이름이 별칭 목록과 일치하는지 확인.
+    짧은 헤더(1~2자, 예: "N", "No")는 부분 문자열 오탐 방지를 위해 정확히 일치만 허용."""
     norm = normalize_text(header)
     for alias in aliases:
-        if normalize_text(alias) in norm or norm in normalize_text(alias):
-            return True
+        norm_alias = normalize_text(alias)
+        if len(norm) <= 2:
+            # 짧은 헤더: 정확히 일치만
+            if norm == norm_alias:
+                return True
+        else:
+            if norm_alias in norm or norm in norm_alias:
+                return True
     return False
 
 

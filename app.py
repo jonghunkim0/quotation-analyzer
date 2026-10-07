@@ -5,6 +5,7 @@ app.py - 원가구성 비교 분석 도구 (Streamlit 메인 앱)
 """
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 # 프로젝트 루트를 sys.path에 추가
@@ -41,7 +42,7 @@ from analysis.validator import Validator
 from analysis.scenario_manager import ScenarioManager
 from visualization.cost_chart import CostCompositionChart
 from export.exporter import Exporter
-from utils.helpers import format_amount, auto_detect_unit
+from utils.helpers import format_amount, auto_detect_unit, generate_id
 
 # ─── 페이지 설정 ─────────────────────────────────────────────
 st.set_page_config(
@@ -79,31 +80,35 @@ if "files" not in st.session_state:
     st.session_state.stack_order = list(DEFAULT_STACK_ORDER)
     st.session_state.filter_mode = "전체"
     st.session_state.selected_category_filter = None
+    st.session_state.uploaded_files_raw = {}  # {filename: UploadedFile}
+    st.session_state.chat_history = []         # [{role, content}]
+    st.session_state.reset_counter = 0         # file_uploader 초기화용
 
 
 # ─── 헬퍼 함수 ───────────────────────────────────────────────
-def process_uploaded_file(uploaded_file) -> QuotationFile:
-    """업로드된 파일을 파싱"""
+def process_uploaded_file(uploaded_file, scenario: str = "견적가") -> QuotationFile:
+    """
+    업로드된 파일을 임시 디스크에 저장한 뒤 파싱.
+    (Streamlit UploadedFile은 메모리 객체라 파서가 읽을 수 있는 경로로 저장 필요)
+    """
     filename = uploaded_file.name
     ext = Path(filename).suffix.lower()
 
     if ext not in SUPPORTED_EXTENSIONS:
-        qf = QuotationFile(
-            file_id=f"file_{id(uploaded_file)}",
+        return QuotationFile(
+            file_id=generate_id("file_"),
             filename=filename,
             file_type="unknown",
             status=FileStatus.ERROR,
             error_message=f"지원하지 않는 형식: {ext}",
         )
-        return qf
 
-    # 임시 파일로 저장
-    import tempfile
-    import os
+    # 임시 파일로 저장 (파서가 file_path 문자열을 요구함)
+    suffix = ext
     with tempfile.NamedTemporaryFile(
-        delete=False, suffix=ext
+        suffix=suffix, delete=False
     ) as tmp:
-        tmp.write(uploaded_file.getvalue())
+        tmp.write(uploaded_file.getbuffer())
         tmp_path = tmp.name
 
     try:
@@ -112,20 +117,21 @@ def process_uploaded_file(uploaded_file) -> QuotationFile:
             sheets = parser.list_sheets(tmp_path)
             # 첫 시트 자동 선택
             selected = sheets[0] if sheets else ""
-            qf = parser.parse_sheet(tmp_path, selected, filename)
+            qf = parser.parse_sheet(tmp_path, selected, filename, scenario)
             qf.sheets = sheets
         elif ext == ".pdf":
             parser = PDFParser()
-            qf = parser.parse(tmp_path, filename)
+            qf = parser.parse(tmp_path, filename, scenario)
     except Exception as e:
         qf = QuotationFile(
-            file_id=f"file_{id(uploaded_file)}",
+            file_id=generate_id("file_"),
             filename=filename,
             file_type="excel" if ext in (".xlsx", ".xls") else "pdf",
             status=FileStatus.ERROR,
             error_message=str(e),
         )
     finally:
+        # 임시 파일 정리
         try:
             os.unlink(tmp_path)
         except OSError:
@@ -245,36 +251,126 @@ with st.sidebar:
     )
 
 # ─── 메인 헤더 ───────────────────────────────────────────────
-st.title("📊 원가구성 비교 분석 도구")
+APP_VERSION = "1.3.5"
+APP_UPDATED = "2026. 10. 2."
+st.markdown(
+    f'<div style="display:flex;align-items:baseline;gap:10px;">'
+    f'<h1 style="margin:0;">📊 원가구성 비교 분석 도구</h1>'
+    f'<span style="font-size:0.85rem;color:#888;">'
+    f'ver {APP_VERSION} · 업데이트 {APP_UPDATED}</span>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
 st.caption(
-    "Excel/PDF 견적서 업로드 → 자동 분류 → 원가구성 비교 차트"
+    "Excel/PDF 견적서 **업로드** → 자동 분류 → 원가구성 비교 차트"
 )
 
 # ─── 1. 파일 업로드 영역 ─────────────────────────────────────
-st.subheader("1. 파일 업로드")
+hdr_left, hdr_right = st.columns([4, 1], gap="small")
+with hdr_left:
+    st.subheader("1. 파일 업로드")
+with hdr_right:
+    if st.button("🔄 새로운 분석", key="btn_reset"):
+        st.session_state.files = {}
+        st.session_state.scenario_mgr.init_default()
+        st.session_state.scenarios = []
+        st.session_state.deltas = []
+        st.session_state.issues = []
+        st.session_state.uploaded_files_raw = {}
+        st.session_state.chat_history = []
+        st.session_state.reset_counter += 1  # file_uploader 초기화
+        st.rerun()
 
 uploaded_files = st.file_uploader(
-    "견적 파일을 선택하세요 (Excel: .xlsx, .xls / PDF: .pdf)",
+    "견적 파일 선택",
     type=["xlsx", "xls", "pdf"],
     accept_multiple_files=True,
+    key=f"file_uploader_{st.session_state.reset_counter}",
 )
 
-if uploaded_files:
-    for uf in uploaded_files:
-        if uf.name not in [
-            f.filename for f in st.session_state.files.values()
-        ]:
-            with st.spinner(f"'{uf.name}' 분석 중..."):
-                qf = process_uploaded_file(uf)
-                st.session_state.files[qf.file_id] = qf
+btn_col, status_col = st.columns([2, 3])
+with btn_col:
+    analyze_clicked = st.button(
+        "▶ 분석 시작",
+        use_container_width=True,
+        key="btn_analyze",
+        disabled=not uploaded_files,
+    )
+with status_col:
+    if not uploaded_files:
+        st.info("📁 먼저 파일을 업로드해 주세요.")
+    elif analyze_clicked:
+        total_files = len(uploaded_files)
+        for idx, up in enumerate(uploaded_files):
+            existing = [
+                f for f in st.session_state.files.values() if f.filename == up.name
+            ]
+            if existing:
+                st.info(f"'{up.name}'은(는) 이미 추가되어 있습니다.")
+                continue
 
-    # 새 파일이 추가되면 분류 실행
-    run_classification()
-    run_aggregation()
+            # 진행률 바 (해당 파일 자체의 진행률 0→100%)
+            progress_bar = st.progress(
+                0.0,
+                text=f"분석 중: {up.name} ({idx + 1}/{total_files})",
+            )
+
+            # 파일명 기반 비교안 이름 (확장자 제거)
+            scen_name = Path(up.name).stem
+            st.session_state.scenario_mgr.add_scenario(scen_name)
+
+            qf = process_uploaded_file(up, scenario=scen_name)
+            st.session_state.files[qf.file_id] = qf
+            st.session_state.scenario_mgr.assign_file(scen_name, qf)
+            st.session_state.uploaded_files_raw[up.name] = up
+
+            # 분류 단계
+            progress_bar.progress(
+                0.5,
+                text=f"분류 중: {up.name} ({idx + 1}/{total_files})",
+            )
+            run_classification()
+
+            # 집계 단계
+            progress_bar.progress(
+                0.9,
+                text=f"집계 중: {up.name} ({idx + 1}/{total_files})",
+            )
+            run_aggregation()
+
+            # 완료 (해당 파일 바 100%)
+            progress_bar.progress(
+                1.0,
+                text=f"완료: {up.name} ({idx + 1}/{total_files})",
+            )
+
+            if qf.status == FileStatus.COMPLETED:
+                st.success(f"✅ '{qf.filename}' 분석 완료 ({len(qf.items)}개 항목)")
+            elif qf.status == FileStatus.OCR_NEEDED:
+                st.warning(f"🔍 '{qf.filename}'은(는) 스캔형 PDF입니다. OCR 처리가 필요합니다.")
+            else:
+                st.error(f"❌ '{qf.filename}' 분석 실패: {qf.error_message}")
+
+        # 전체 완료 표시
+        st.success(f"🎉 전체 분석 완료 ({total_files}개 파일)")
+    else:
+        # 이미 분석된 파일: 진행바를 100% 완료 상태로 표시
+        analyzed_names = {f.filename for f in st.session_state.files.values()}
+        total_files = len(uploaded_files)
+        for idx, up in enumerate(uploaded_files):
+            if up.name in analyzed_names:
+                st.progress(
+                    1.0,
+                    text=f"✅ 완료: {up.name} ({idx + 1}/{total_files})",
+                )
+        if analyzed_names:
+            st.success(f"🎉 전체 분석 완료 ({len(analyzed_names)}개 파일)")
+        else:
+            st.info("📁 파일을 업로드했습니다. **분석 시작** 버튼을 눌러 주세요.")
 
 # 업로드 파일 목록
 if st.session_state.files:
-    col1, col2, col3 = st.columns([3, 2, 1])
+    col1, col2 = st.columns([3, 2])
     with col1:
         st.markdown("**업로드된 파일**")
         for fid, qf in st.session_state.files.items():
@@ -306,15 +402,6 @@ if st.session_state.files:
                     st.warning(f"{qf.filename}: {diff_str}")
                 else:
                     st.success(f"{qf.filename}: {diff_str}")
-
-    with col3:
-        if st.button("🗑️ 전체 삭제", key="btn_clear_all"):
-            st.session_state.files = {}
-            st.session_state.scenario_mgr.init_default()
-            st.session_state.scenarios = []
-            st.session_state.deltas = []
-            st.session_state.issues = []
-            st.rerun()
 
 # ─── 2. 비교안 관리 ──────────────────────────────────────────
 st.subheader("2. 비교안 관리")
@@ -578,16 +665,23 @@ if st.session_state.scenarios:
         hide_zero_supply=st.session_state.hide_zero_supply,
         dim_unselected=st.session_state.dim_unselected,
     )
-    fig = chart.build()
-    st.plotly_chart(fig, use_container_width=True)
+
+    # 1차: 비용 그룹 비교
+    fig1 = chart.build()
+    st.plotly_chart(fig1, use_container_width=True)
+
+    # 2차: 세부 분류 비교 (구매품/재료비/인건비/경비 각각)
+    figs2 = chart.build_detail()
+    for i, fig in enumerate(figs2):
+        st.plotly_chart(fig, use_container_width=True)
 
     # 차트 PNG 저장
     if st.button("📷 차트 PNG 저장", key="btn_save_png"):
         try:
-            fig.write_image(
-                "cost_chart.png", scale=2
-            )
-            st.success("차트가 cost_chart.png로 저장되었습니다.")
+            fig1.write_image("cost_chart_1.png", scale=2)
+            for i, fig in enumerate(figs2):
+                fig.write_image(f"cost_chart_2_{i+1}.png", scale=2)
+            st.success("차트가 PNG로 저장되었습니다.")
         except Exception as e:
             st.error(f"PNG 저장 실패: {e}")
             st.info(
@@ -598,7 +692,8 @@ if st.session_state.scenarios:
 st.subheader("6. 결과 내보내기")
 
 if st.session_state.scenarios:
-    exp_col1, exp_col2, exp_col3 = st.columns(3)
+    import io
+    import pandas as pd
 
     metadata = {
         "원본 파일": ", ".join(
@@ -612,79 +707,194 @@ if st.session_state.scenarios:
     }
     exporter = Exporter(metadata=metadata)
 
+    def _csv_to_xlsx(csv_str: str) -> bytes:
+        """CSV 문자열을 Excel 바이너리로 변환 (빈 데이터 처리)"""
+        if not csv_str or not csv_str.strip():
+            df = pd.DataFrame({"메시지": ["데이터 없음"]})
+        else:
+            df = pd.read_csv(io.StringIO(csv_str))
+        buf = io.BytesIO()
+        df.to_excel(buf, index=False, engine="openpyxl")
+        return buf.getvalue()
+
+    # 원본 파일에 분류 열 추가하여 내보내기 (공용 함수)
+    def _build_original_with_classification() -> bytes:
+        """원본 Excel을 그대로 유지하고 끝단에 분류 열을 추가"""
+        import openpyxl
+        import tempfile
+        import os
+
+        # 파일별 항목 매핑: (source_file, source_sheet, source_row) -> item
+        item_map = {}
+        for it in all_items:
+            key = (it.source_file, it.source_sheet, it.source_row)
+            item_map[key] = it
+
+        # 원본 업로드 파일 찾기
+        first_qf = next(iter(st.session_state.files.values()), None)
+        if first_qf is None:
+            df = pd.DataFrame({"메시지": ["데이터 없음"]})
+            buf = io.BytesIO()
+            df.to_excel(buf, index=False, engine="openpyxl")
+            return buf.getvalue()
+
+        raw_file = st.session_state.uploaded_files_raw.get(first_qf.filename)
+        if raw_file is None:
+            df = pd.DataFrame({"메시지": ["원본 파일 데이터를 찾을 수 없습니다."]})
+            buf = io.BytesIO()
+            df.to_excel(buf, index=False, engine="openpyxl")
+            return buf.getvalue()
+
+        # 원본 파일을 임시 파일로 복사
+        tmp_path = os.path.join(tempfile.gettempdir(), f"_orig_{first_qf.filename}")
+        with open(tmp_path, "wb") as f:
+            f.write(raw_file.getvalue())
+
+        try:
+            wb = openpyxl.load_workbook(tmp_path)
+        except Exception:
+            # 읽기 실패 시 분석 결과만 반환
+            df = pd.DataFrame([
+                {
+                    "품명": it.name,
+                    "수량": it.quantity,
+                    "단가": it.unit_price,
+                    "금액": it.amount,
+                    "자동분류": it.auto_category,
+                    "신뢰도(%)": it.confidence,
+                    "최종분류": it.final_category,
+                    "분류근거": it.reason,
+                }
+                for it in all_items
+            ])
+            buf = io.BytesIO()
+            df.to_excel(buf, index=False, engine="openpyxl")
+            return buf.getvalue()
+
+        # 모든 시트 처리
+        for ws in wb.worksheets:
+            # 헤더 행 탐지 (parser와 동일한 로직)
+            from parsers.excel_parser import ExcelParser
+            parser = ExcelParser()
+            df_tmp = pd.read_excel(tmp_path, sheet_name=ws.title, header=None)
+            header_idx = parser.detect_header_row(df_tmp)
+            if header_idx < 0:
+                continue
+
+            # 기존 최대 열 번호
+            max_col = ws.max_column
+            # 분류 열 시작 위치
+            new_col_start = max_col + 1
+
+            # 헤더 행에 분류 열 이름 추가
+            new_headers = ["자동분류", "신뢰도(%)", "핵심키워드", "분류근거", "최종분류", "검토상태", "수정여부"]
+            for i, h in enumerate(new_headers):
+                ws.cell(row=header_idx + 1, column=new_col_start + i, value=h)
+
+            # 데이터 행에 분류 정보 채우기
+            for row_idx in range(header_idx + 1, len(df_tmp)):
+                source_row = row_idx + 1  # 1-based (parser와 동일)
+                key = (first_qf.filename, ws.title, source_row)
+                if key in item_map:
+                    it = item_map[key]
+                    ws.cell(row=row_idx + 1, column=new_col_start + 0, value=it.auto_category)
+                    ws.cell(row=row_idx + 1, column=new_col_start + 1, value=it.confidence)
+                    ws.cell(row=row_idx + 1, column=new_col_start + 2, value=", ".join(it.keywords))
+                    ws.cell(row=row_idx + 1, column=new_col_start + 3, value=it.reason)
+                    ws.cell(row=row_idx + 1, column=new_col_start + 4, value=it.final_category)
+                    ws.cell(row=row_idx + 1, column=new_col_start + 5, value=it.review_status.value)
+                    ws.cell(row=row_idx + 1, column=new_col_start + 6, value="Y" if it.is_modified else "N")
+
+        # BytesIO로 저장
+        buf = io.BytesIO()
+        wb.save(buf)
+        wb.close()
+
+        # 임시 파일 삭제
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+        return buf.getvalue()
+
+    exp_col1, exp_col2, exp_col3 = st.columns(3)
+
     with exp_col1:
-        if st.button("📄 견적항목 CSV", key="btn_exp_items"):
-            csv_content = exporter.export_items_csv(all_items)
-            st.download_button(
-                "다운로드",
-                data=csv_content,
-                file_name="견적항목.csv",
-                mime="text/csv",
-                key="dl_items",
-            )
+        st.download_button(
+            "📄 견적 세부분류",
+            data=_build_original_with_classification(),
+            file_name="견적세부분류.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_items",
+        )
     with exp_col2:
-        if st.button("📊 집계표 CSV", key="btn_exp_summary"):
-            csv_content = exporter.export_summary_csv(
-                st.session_state.scenarios
-            )
-            st.download_button(
-                "다운로드",
-                data=csv_content,
-                file_name="집계표.csv",
-                mime="text/csv",
-                key="dl_summary",
-            )
+        csv_content = exporter.export_summary_csv(
+            st.session_state.scenarios
+        )
+        st.download_button(
+            "📊 집계표",
+            data=_csv_to_xlsx(csv_content),
+            file_name="집계표.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_summary",
+        )
     with exp_col3:
-        if st.button("📈 증감분석 CSV", key="btn_exp_delta"):
-            csv_content = exporter.export_comparison_csv(
-                st.session_state.scenarios, st.session_state.deltas
-            )
-            st.download_button(
-                "다운로드",
-                data=csv_content,
-                file_name="증감분석.csv",
-                mime="text/csv",
-                key="dl_delta",
-            )
+        csv_content = exporter.export_comparison_csv(
+            st.session_state.scenarios, st.session_state.deltas
+        )
+        st.download_button(
+            "📈 증감분석",
+            data=_csv_to_xlsx(csv_content),
+            file_name="증감분석.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_delta",
+        )
 
     exp_col4, exp_col5 = st.columns(2)
     with exp_col4:
-        if st.button("📑 전체 Excel 내보내기", key="btn_exp_excel"):
-            import tempfile
-            with tempfile.NamedTemporaryFile(
-                suffix=".xlsx", delete=False
-            ) as tmp:
-                tmp_path = tmp.name
-            exporter.export_excel(
-                tmp_path,
-                all_items,
-                st.session_state.scenarios,
-                st.session_state.deltas,
-                st.session_state.issues,
-            )
-            with open(tmp_path, "rb") as f:
-                data = f.read()
-            st.download_button(
-                "다운로드",
-                data=data,
-                file_name="원가분석_결과.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="dl_excel",
-            )
-            os.unlink(tmp_path)
+        buf = io.BytesIO()
+        exporter.export_excel(
+            buf,
+            all_items,
+            st.session_state.scenarios,
+            st.session_state.deltas,
+            st.session_state.issues,
+        )
+        st.download_button(
+            "📑 전체 Excel",
+            data=buf.getvalue(),
+            file_name="원가분석_결과.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_excel",
+        )
 
     with exp_col5:
-        if st.button("⚠️ 검증오류 CSV", key="btn_exp_issues"):
-            csv_content = exporter.export_validation_csv(
-                st.session_state.issues
-            )
-            st.download_button(
-                "다운로드",
-                data=csv_content,
-                file_name="검증오류.csv",
-                mime="text/csv",
-                key="dl_issues",
-            )
+        csv_content = exporter.export_validation_csv(
+            st.session_state.issues
+        )
+        st.download_button(
+            "⚠️ 검증오류",
+            data=_csv_to_xlsx(csv_content),
+            file_name="검증오류.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_issues",
+        )
+
+    # 원가구성 비교 차트 (5번 섹션)를 Excel 네이티브 차트로 내보내기
+    exp_col6 = st.columns(1)
+    with exp_col6[0]:
+        st.download_button(
+            "📊 원가구성 비교 차트 (Excel 그래프)",
+            data=exporter.export_chart_excel(
+                st.session_state.scenarios,
+                unit=st.session_state.unit,
+                decimals=st.session_state.decimals,
+            ),
+            file_name="원가구성비교차트.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_chart",
+        )
 
 # ─── 7. 분류 규칙 관리 ───────────────────────────────────────
 with st.expander("📖 분류 규칙 관리"):
@@ -743,6 +953,155 @@ with st.expander("📖 분류 규칙 관리"):
                 f"{h['timestamp'][:16]} | {h['action']} | "
                 f"'{h['keyword']}' → {h['category']}"
             )
+
+# ─── 7. 분석 도우미 (LLM 챗봇) ───────────────────────────────
+st.subheader("7. 분석 도우미")
+
+CHAT_API_URL = "https://bai.hpc.lge.com:10602/api/v1/chat/completions"
+CHAT_API_KEY = "sk-9370684cc9794f03b2b951b02bab8d98"
+CHAT_MODEL = "Qwen/Qwen3.8-27B-FP8"
+
+
+def _build_chat_context() -> str:
+    """현재 분석 데이터를 LLM 컨텍스트로 구성"""
+    ctx = "## 비교안 집계\n"
+    for s in st.session_state.scenarios:
+        cats = ", ".join(
+            f"{c} {v:,.0f}" for c, v in s.category_totals.items() if v != 0
+        )
+        ctx += f"- {s.name}: 총 {s.total_amount:,.0f}원 ({cats})\n"
+    ctx += "\n## 견적 항목 목록 (번호 = 표의 행 순서)\n"
+    for i, it in enumerate(all_items, 1):
+        ctx += (
+            f"{i}. [행{it.source_row}] {it.name[:30]} | "
+            f"{it.amount:,.0f}원 | {it.final_category}\n"
+        )
+    return ctx
+
+
+def _chat_system_prompt() -> str:
+    return (
+        '너는 "원가구성 비교 분석 도구"의 분석 도우미다. '
+        "사용자의 요청에 따라 분석 데이터를 조회하거나 수정한다.\n\n"
+        f"사용 가능한 비용 분류: {', '.join(COST_CATEGORIES)}\n\n"
+        f"## 현재 분석 데이터\n{_build_chat_context()}\n\n"
+        "## 규칙\n"
+        "1. 항상 한국어로 간결하게 답한다.\n"
+        '2. "N번째 항목"은 위 목록의 번호 N을 의미한다. "N~M번"은 N부터 M까지의 항목을 의미한다.\n'
+        "3. 항목의 분류를 수정해 달라는 요청이면, 답의 마지막 줄에 반드시 아래 형식의 ACTION 줄을 포함하라:\n"
+        'ACTION: {"action":"reclassify","indices":[50],"category":"기구 구매품"}\n'
+        "   - indices는 수정할 항목 번호 배열, category는 위 분류 중 하나\n"
+        "4. 조회 요청(총액, 미분류 목록 등)이면 ACTION 없이 텍스트로만 답한다.\n"
+        "5. 데이터에 없는 요청이면 그렇게 알려준다."
+    )
+
+
+def _send_chat_llm(messages: list) -> str:
+    """LLM API 호출"""
+    import urllib.request
+    import json as _json
+
+    req = urllib.request.Request(
+        CHAT_API_URL,
+        data=_json.dumps({
+            "model": CHAT_MODEL,
+            "messages": messages,
+            "max_tokens": 1500,
+            "temperature": 0,
+        }).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {CHAT_API_KEY}",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = _json.loads(resp.read())
+    return (
+        data.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
+    )
+
+
+# 채팅 히스토리 표시
+if st.session_state.chat_history:
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+# 채팅 입력
+chat_input = st.chat_input(
+    "예: 50번째 항목은 전장 구매품으로 / 미분류 항목 목록 / 전장 구매품 총액",
+    disabled=not st.session_state.scenarios,
+)
+
+if chat_input and st.session_state.scenarios:
+    # 사용자 메시지 표시
+    with st.chat_message("user"):
+        st.markdown(chat_input)
+
+    # LLM 호출
+    with st.chat_message("assistant"):
+        with st.spinner("분석 중…"):
+            try:
+                messages = [
+                    {"role": "system", "content": _chat_system_prompt()},
+                    *st.session_state.chat_history[-8:],
+                    {"role": "user", "content": chat_input},
+                ]
+                content = _send_chat_llm(messages)
+                if not content:
+                    content = "⚠️ 응답이 비어 있습니다. 다시 시도해 주세요."
+
+                # ACTION 추출 + 실행
+                import re as _re
+                m = _re.search(r"ACTION:\s*(\{[\s\S]*\})", content)
+                reply = _re.sub(r"ACTION:\s*\{[\s\S]*\}", "", content).strip()
+                if m:
+                    import json as _json2
+                    try:
+                        act = _json2.loads(m.group(1))
+                        if (
+                            act.get("action") == "reclassify"
+                            and isinstance(act.get("indices"), list)
+                            and act.get("category") in COST_CATEGORIES
+                        ):
+                            n = 0
+                            for idx in act["indices"]:
+                                it = all_items[idx - 1] if 1 <= idx <= len(all_items) else None
+                                if it:
+                                    it.final_category = act["category"]
+                                    it.is_modified = True
+                                    st.session_state.rule_store.add_rule(
+                                        it.name[:20], act["category"]
+                                    )
+                                    n += 1
+                            st.session_state.classifier.user_rules = (
+                                st.session_state.rule_store.get_rules()
+                            )
+                            reply += (
+                                f"\n✅ {n}개 항목을 \"{act['category']}\"(으)로 수정했습니다."
+                                if n
+                                else "\n⚠️ 해당하는 항목을 찾지 못했습니다."
+                            )
+                    except _json2.JSONDecodeError:
+                        pass
+
+                st.markdown(reply)
+
+            except Exception as e:
+                st.error(f"⚠️ {e}")
+                reply = f"⚠️ {e}"
+
+    # 히스토리 저장
+    st.session_state.chat_history.append({"role": "user", "content": chat_input})
+    st.session_state.chat_history.append({"role": "assistant", "content": reply})
+    if len(st.session_state.chat_history) > 12:
+        st.session_state.chat_history = st.session_state.chat_history[-12:]
+
+elif not st.session_state.scenarios:
+    st.info("📁 먼저 파일을 업로드하고 **분석 시작**을 눌러주세요.")
 
 # ─── 푸터 ────────────────────────────────────────────────────
 st.divider()

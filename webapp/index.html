@@ -19,6 +19,7 @@
          background: var(--bg); color: var(--text); font-size: 14px; }
   header { background: #111827; color: #fff; padding: 14px 24px; }
   header h1 { margin: 0; font-size: 18px; }
+  header h1 .ver { font-size: 11px; font-weight: normal; color: #9ca3af; margin-left: 8px; vertical-align: middle; }
   header p { margin: 4px 0 0; font-size: 12px; color: #9ca3af; }
   .layout { display: flex; gap: 16px; padding: 16px; align-items: flex-start; }
   .sidebar { width: 260px; flex-shrink: 0; }
@@ -73,6 +74,21 @@
   .pill { font-size: 11px; padding: 3px 10px; border-radius: 12px;
           background: #eff6ff; color: #1e40af; }
   .footer { text-align: center; color: var(--muted); font-size: 12px; padding: 16px; }
+  .chat-log { height: 240px; overflow-y: auto; background: #f9fafb;
+              border: 1px solid var(--border); border-radius: 6px;
+              padding: 8px; margin-bottom: 8px; }
+  .msg { max-width: 92%; padding: 6px 10px; border-radius: 10px;
+         font-size: 12px; line-height: 1.5; margin-bottom: 6px;
+         word-break: keep-all; white-space: pre-wrap; }
+  .msg.bot { background: #fff; border: 1px solid var(--border);
+             border-bottom-left-radius: 3px; }
+  .msg.user { background: var(--primary); color: #fff; margin-left: auto;
+              border-bottom-right-radius: 3px; }
+  .chat-input { display: flex; gap: 6px; }
+  .chat-input input { flex: 1; min-width: 0; }
+  .chat-input button { flex-shrink: 0; padding: 6px 12px; }
+  .chat-hint { font-size: 11px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .chat-hint b { color: #374151; }
   .hidden { display: none; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 900px) { .layout { flex-direction: column; } .sidebar { width: 100%; } }
@@ -80,8 +96,8 @@
 </head>
 <body>
 <header>
-  <h1>📊 원가구성 비교 분석 도구</h1>
-  <p>Excel/PDF 견적서 업로드 → 자동 분류 → 원가구성 비교 차트 &nbsp;|&nbsp; 🔒 모든 데이터는 이 브라우저 안에서만 처리됩니다 (외부 전송 없음)</p>
+  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.3.4 · 업데이트 2026. 9. 21. 오후 7:30</span></h1>
+  <p>Excel/PDF 견적서 선택 → 자동 분류 → 원가구성 비교 차트 &nbsp;|&nbsp; 🔒 모든 데이터는 이 브라우저 안에서만 처리됩니다 (외부 전송 없음)</p>
 </header>
 
 <div class="layout">
@@ -109,21 +125,40 @@
       <h3>강조 비교안</h3>
       <select id="setHighlight"></select>
     </div>
+
+    <div class="card">
+      <h2>💬 분석 도우미</h2>
+      <div class="chat-log" id="chatLog">
+        <div class="msg bot">안녕하세요! 분석 데이터를 수정하거나 조회할 수 있습니다. 아래 예시를 참고해 주세요.</div>
+      </div>
+      <div class="chat-input">
+        <input type="text" id="chatInput" placeholder="예: 50번째 항목은 기구 재료비로" />
+        <button id="chatSend">전송</button>
+      </div>
+      <div class="chat-hint">
+        <b>예시</b><br>
+        · 50번째 항목은 기구 재료비로 반영해줘<br>
+        · 12~15번 항목은 경비로 바꿔줘<br>
+        · 미분류 항목 보여줘<br>
+        · 재료비 총액 알려줘<br>
+        <span style="color:#9ca3af">※ 채팅 내용은 LLM 서버로 전송됩니다</span>
+      </div>
+    </div>
   </div>
 
   <!-- ─── 메인 ─── -->
   <div class="main">
-    <!-- 1. 업로드 -->
+    <!-- 1. 파일 선택 -->
     <div class="card">
-      <h2>1. 파일 업로드</h2>
+      <h2>1. 파일 선택</h2>
       <div class="dropzone" id="dropzone">
         📁 견적 파일을 클릭해서 선택하거나 끌어다 놓으세요<br>
-        <span class="muted">Excel: .xlsx, .xls &nbsp;|&nbsp; PDF: .pdf (텍스트형/스캔형)</span>
+        <span class="muted">Excel: .xlsx, .xls &nbsp;|&nbsp; PDF: .pdf (텍스트형/스캔형) · 업로드 없이 로컬에서 읽습니다</span>
       </div>
       <input type="file" id="fileInput" multiple accept=".xlsx,.xls,.pdf" class="hidden">
       <div class="row" style="margin-top:12px; align-items:center">
         <button class="primary" id="btnAnalyze" style="font-size:15px; padding:10px 28px;">▶ 분석 시작</button>
-        <span class="muted" id="analyzeHint">파일을 업로드한 뒤 [분석 시작]을 누르면 원가구성 차트가 표시됩니다.</span>
+        <span class="muted" id="analyzeHint">파일을 선택한 뒤 [분석 시작]을 누르면 파일을 읽고 원가구성 차트를 표시합니다.</span>
       </div>
       <div id="analyzeProgress" style="display:none; margin-top:8px; max-width:280px;">
         <div style="height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden;">
@@ -162,6 +197,9 @@
         </div>
         <div><label>분류 필터</label><select id="filterCat"></select></div>
         <div><label>비교안 필터</label><select id="filterScen"></select></div>
+        <div><label>&nbsp;</label>
+          <button id="btnAiReclassify" class="btn" style="display:none">🤖 AI로 재분류</button>
+        </div>
       </div>
       <div class="tablewrap" style="margin-top:10px">
         <table id="itemsTable">
@@ -270,57 +308,125 @@ function initSettings() {
   $("footerTime").textContent = new Date().toLocaleString("ko-KR");
 }
 
-// ─── 파일 업로드 ─────────────────────────────────────────────
-async function handleFiles(fileList) {
-  for (const file of fileList) {
-    const id = "file_" + Math.random().toString(36).slice(2, 10);
-    const ext = file.name.split(".").pop().toLowerCase();
-    // 비교안 이름 = 파일명(확장자 제외), 업로드 순서대로 배치
-    const baseName = file.name.replace(/\.[^.]+$/, "").replace(/_/g, " ");
-    const existing = state.fileOrder.map(fid => state.files[fid]?.scenario).filter(Boolean);
-    let scenario = baseName, n = 2;
-    while (existing.includes(scenario)) scenario = `${baseName} (${n++})`;
-    const entry = { id, name: file.name, type: ext, items: [], error: "", isScanned: false, scenario };
-    try {
-      if (ext === "xlsx" || ext === "xls") {
-        const buf = await file.arrayBuffer();
-        entry.buf = buf; // 원본 버퍼 보존 (견적항목 내보내기 시 원본에 분류 기록)
-        const wb = XLSX.read(buf, { type: "array" });
-        const sheetName = wb.SheetNames[0];
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: null });
-        const res = QA.parseExcelSheet(rows, file.name, sheetName, "견적가");
-        if (res.error) { entry.error = res.error; }
-        else {
-          entry.items = res.items; entry.originalTotal = res.originalTotal;
-          entry.extractedTotal = res.extractedTotal; entry.taxAmount = res.taxAmount;
-          entry.sheet = sheetName;
-        }
-      } else if (ext === "pdf") {
-        const buf = await file.arrayBuffer();
-        const res = await QA.parsePDF(buf, file.name, "견적가");
-        entry.items = res.items; entry.originalTotal = res.originalTotal;
-        entry.extractedTotal = res.extractedTotal; entry.taxAmount = res.taxAmount;
-        entry.isScanned = res.isScanned;
-        if (res.isScanned) entry.error = "스캔형 PDF입니다. 텍스트가 거의 없어 추출이 어려울 수 있습니다.";
-      } else {
-        entry.error = "지원하지 않는 형식: ." + ext;
-      }
-    } catch (e) {
-      entry.error = "파싱 실패: " + e.message;
-    }
-    // 자동 분류 + 시나리오(파일명) 할당
-    entry.items.forEach(it => {
-      it.scenario = entry.scenario;
-      const r = QA.classifyItem(it, state.userRules);
-      it.auto_category = r.category; it.confidence = r.confidence;
-      it.keywords = r.keywords; it.reason = r.reason; it.final_category = r.category;
-    });
-    state.files[id] = entry;
-    state.fileOrder.push(id);
-  }
-  // 새 파일 업로드 시 분석 초기화 (다시 [분석 시작] 필요)
+// ─── 파일 선택 (File System Access API) ──────────────────────
+// 선택 시에는 파일 내용 읽지 않고 핸들/경로만 기록. [분석 시작] 시점에 읽음.
+function addFileEntry(file, handle) {
+  const id = "file_" + Math.random().toString(36).slice(2, 10);
+  const ext = file.name.split(".").pop().toLowerCase();
+  // 비교안 이름 = 파일명(확장자 제외), 선택 순서대로 배치
+  const baseName = file.name.replace(/\.[^.]+$/, "").replace(/_/g, " ");
+  const existing = state.fileOrder.map(fid => state.files[fid]?.scenario).filter(Boolean);
+  let scenario = baseName, n = 2;
+  while (existing.includes(scenario)) scenario = `${baseName} (${n++})`;
+  const entry = {
+    id, name: file.name, type: ext, items: [], error: "", isScanned: false, scenario,
+    handle: handle || null,   // FileSystemFileHandle (드롭존 클릭 선택)
+    file: handle ? null : file, // File (드래그앤드롭 / 파일 입력)
+    parsed: false,
+  };
+  state.files[id] = entry;
+  state.fileOrder.push(id);
+}
+
+function handleFiles(fileList) {
+  for (const file of fileList) addFileEntry(file, null);
+  // 새 파일 선택 시 분석 초기화 (다시 [분석 시작] 필요)
   state.analyzed = false;
   renderAll();
+}
+
+// 드롭존 클릭 → File System Access API 파일 선택 다이얼로그
+async function pickFiles() {
+  if (window.showOpenFilePicker) {
+    try {
+      const handles = await showOpenFilePicker({
+        multiple: true,
+        types: [{ description: "견적 파일", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"], "application/vnd.ms-excel": [".xls"], "application/pdf": [".pdf"] } }],
+      });
+      for (const h of handles) {
+        const f = await h.getFile();
+        addFileEntry(f, h);
+      }
+      state.analyzed = false;
+      renderAll();
+    } catch (e) { /* 사용자가 취소한 경우 무시 */ }
+  } else {
+    $("fileInput").click(); // API 미지원 브라우저 폴백
+  }
+}
+
+// [분석 시작] 시점에 파일 내용 읽기 (로컬에서만, 업로드 없음)
+async function readFileBuffer(entry) {
+  if (entry.handle) {
+    let perm = await entry.handle.queryPermission({ mode: "read" });
+    if (perm !== "granted") perm = await entry.handle.requestPermission({ mode: "read" });
+    if (perm !== "granted") throw new Error("파일 읽기 권한이 거부되었습니다.");
+    const f = await entry.handle.getFile();
+    return f.arrayBuffer();
+  }
+  return entry.file.arrayBuffer();
+}
+
+// 파일 파싱 (선택 후 [분석 시작] 시 호출)
+async function parseFile(entry) {
+  try {
+    if (entry.type === "xlsx" || entry.type === "xls") {
+      const buf = await readFileBuffer(entry);
+      entry.buf = buf; // 원본 버퍼 보존 (견적항목 내보내기 시 원본에 분류 기록)
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheetName = wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+      // 합산 수식 행 수집: 수식이 다른 행을 참조하면 합산 표기 행 → 분류 제외
+      // (같은 행의 =단가*수량 같은 수식은 실제 항목이므로 유지)
+      const sumRows = new Set();
+      if (ws["!ref"]) {
+        const fr = XLSX.utils.decode_range(ws["!ref"]);
+        const refRe = /(?<![A-Za-z0-9_])([A-Z]{1,3})(\d+)/g;
+        for (let rr = fr.s.r; rr <= fr.e.r; rr++) {
+          for (let cc = fr.s.c; cc <= fr.e.c; cc++) {
+            const cell = ws[XLSX.utils.encode_cell({ r: rr, c: cc })];
+            if (!cell || !cell.f) continue;
+            refRe.lastIndex = 0;
+            let m, crossRow = false;
+            while ((m = refRe.exec(String(cell.f))) !== null) {
+              if (parseInt(m[2], 10) !== rr + 1) { crossRow = true; break; }
+            }
+            if (crossRow) sumRows.add(rr);
+          }
+        }
+      }
+      const scenName = entry.name.replace(/\.[^.]+$/, "");
+      const res = QA.parseExcelSheet(rows, entry.name, sheetName, scenName, sumRows, ws);
+      if (res.error) { entry.error = res.error; }
+      else {
+        entry.items = res.items; entry.originalTotal = res.originalTotal;
+        entry.extractedTotal = res.extractedTotal; entry.taxAmount = res.taxAmount;
+        entry.sheet = sheetName;
+      }
+    } else if (entry.type === "pdf") {
+      const buf = await readFileBuffer(entry);
+      const res = await QA.parsePDF(buf, entry.name, entry.name.replace(/\.[^.]+$/, ""));
+      entry.items = res.items; entry.originalTotal = res.originalTotal;
+      entry.extractedTotal = res.extractedTotal; entry.taxAmount = res.taxAmount;
+      entry.isScanned = res.isScanned;
+      if (res.isScanned) entry.error = "스캔형 PDF입니다. 텍스트가 거의 없어 추출이 어려울 수 있습니다.";
+    } else {
+      entry.error = "지원하지 않는 형식: ." + entry.type;
+    }
+  } catch (e) {
+    entry.error = "파싱 실패: " + e.message;
+  }
+  // 자동 분류 + 시나리오(파일명) 할당
+  entry.items.forEach(it => {
+    it.scenario = entry.scenario;
+    const r = QA.classifyItem(it, state.userRules);
+    it.auto_category = r.category; it.confidence = r.confidence;
+    it.keywords = r.keywords; it.reason = r.reason; it.final_category = r.category;
+  });
+  // 유사 항목 전파: 같은 파일에서 이미 분류된 항목과 유사한 미분류 항목을 전파
+  QA.propagateSimilar(entry.items);
+  entry.parsed = true;
 }
 
 // ─── 비교안 집계 (업로드 순서, 파일명 기반) ──────────────────
@@ -354,6 +460,7 @@ function renderAll() {
   renderScenarioSelects();
   renderFileList();
   renderRules();
+  updateAiReclassifyBtn();
   if (state.analyzed) {
     renderItemsTable();
     renderSummary();
@@ -393,10 +500,12 @@ function renderFileList() {
   Object.values(state.files).forEach(f => {
     const div = document.createElement("div");
     div.className = "fileitem";
-    let badge = f.error ? `<span class="badge err">오류</span>`
+    let badge = !f.parsed ? `<span class="badge ocr">선택됨</span>`
+              : f.error ? `<span class="badge err">오류</span>`
               : f.isScanned ? `<span class="badge ocr">OCR 필요</span>`
               : `<span class="badge ok">완료</span>`;
-    div.innerHTML = `<span>${badge} <b>${f.name}</b> <span class="muted">(${f.items.length}개 항목)</span></span>
+    const itemInfo = f.parsed ? `<span class="muted">(${f.items.length}개 항목)</span>` : `<span class="muted">· [분석 시작] 시 파일 읽기</span>`;
+    div.innerHTML = `<span>${badge} <b>${f.name}</b> ${itemInfo}</span>
       <button class="danger" data-del="${f.id}">✕</button>`;
     list.appendChild(div);
     if (f.error) {
@@ -524,6 +633,12 @@ function renderValidation() {
   });
   const uncl = Object.values(state.files).flatMap(f => f.items).filter(i => i.final_category === "미분류");
   if (uncl.length) issues.push(`⚠️ 미분류 항목 ${uncl.length}개 - 분류 검토 필요`);
+  // 규칙 2: 단가×수량 검증 — 금액이 단가×수량과 불일치하는 항목
+  const mismatch = Object.values(state.files).flatMap(f => f.items).filter(i =>
+    i.quantity > 1 && i.unit_price > 0 &&
+    Math.abs(i.amount - i.quantity * i.unit_price) > Math.max(1, i.quantity * i.unit_price * 0.01)
+  );
+  if (mismatch.length) issues.push(`⚠️ 단가×수량과 금액 불일치 항목 ${mismatch.length}개 (예: ${mismatch.slice(0, 3).map(i => i.name || i.source_row + "행").join(", ")})`);
   if (issues.length) {
     wrap.innerHTML = issues.map(i => `<div class="warn">${i}</div>`).join("");
   }
@@ -771,8 +886,8 @@ function renderChart() {
 // ─── 이벤트 바인딩 ───────────────────────────────────────────
 function bindEvents() {
   const dz = $("dropzone"), fi = $("fileInput");
-  dz.onclick = () => fi.click();
-  fi.onchange = e => handleFiles(e.target.files);
+  dz.onclick = () => pickFiles();
+  fi.onchange = e => { handleFiles(e.target.files); fi.value = ""; };
   dz.ondragover = e => { e.preventDefault(); dz.classList.add("drag"); };
   dz.ondragleave = () => dz.classList.remove("drag");
   dz.ondrop = e => { e.preventDefault(); dz.classList.remove("drag"); handleFiles(e.dataTransfer.files); };
@@ -781,11 +896,12 @@ function bindEvents() {
     $(id).addEventListener("change", renderChart));
   $("setHighlight").addEventListener("change", e => { state.highlight = e.target.value; renderChart(); });
   ["filterMode","filterCat","filterScen"].forEach(id => $(id).addEventListener("change", renderItemsTable));
+  $("btnAiReclassify").onclick = aiReclassify;
 
   // [분석 시작] 버튼 — 단계별 실행 + 진행률 바
   $("btnAnalyze").onclick = async () => {
     if (!state.fileOrder.length) {
-      $("analyzeHint").textContent = "⚠️ 먼저 파일을 업로드하세요.";
+      $("analyzeHint").textContent = "⚠️ 먼저 파일을 선택하세요.";
       $("analyzeHint").style.color = "#DC2626";
       return;
     }
@@ -794,12 +910,26 @@ function bindEvents() {
       bar.style.width = pct + "%";
       label.textContent = text ? `${text} (${pct}%)` : `${pct}%`;
     };
-    const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+    const nextFrame = () => new Promise(r => setTimeout(r, 0));
     wrap.style.display = "block";
     setProgress(0, "분석 시작");
     await nextFrame();
-    state.analyzed = true;
     try {
+      // 선택된 파일 읽기 + 파싱 (로컬에서만, 업로드 없음)
+      const pending = state.fileOrder.map(fid => state.files[fid]).filter(f => f && !f.parsed);
+      for (let i = 0; i < pending.length; i++) {
+        setProgress(2 + Math.round(i / pending.length * 8), `파일 읽기 ${i + 1}/${pending.length}`);
+        await nextFrame();
+        await parseFile(pending[i]);
+      }
+      renderFileList();
+      const failed = Object.values(state.files).filter(f => f.error);
+      if (failed.length) {
+        $("analyzeHint").textContent = "⚠️ " + failed.map(f => f.name).join(", ") + " — " + failed[0].error;
+        $("analyzeHint").style.color = "#DC2626";
+        return;
+      }
+      state.analyzed = true;
       renderScenarioSelects(); setProgress(10, "비교안 준비"); await nextFrame();
       renderFileList();         setProgress(20, "파일 목록");   await nextFrame();
       renderRules();            setProgress(30, "분류 규칙");   await nextFrame();
@@ -1233,6 +1363,193 @@ function bindEvents() {
     if (chart2aRef.current) chart2aRef.current.resize();
     if (chart2bRef.current) chart2bRef.current.resize();
   });
+
+  // 💬 분석 도우미
+  $("chatSend").onclick = sendChat;
+  $("chatInput").addEventListener("keydown", e => { if (e.key === "Enter") sendChat(); });
+}
+
+// ─── 🤖 AI 재분류 (미분류 항목 LLM 분류) ─────────────────────
+function updateAiReclassifyBtn() {
+  const btn = $("btnAiReclassify");
+  if (!btn) return;
+  const unclassified = Object.values(state.files).flatMap(f => f.items)
+    .filter(i => i.final_category === "미분류");
+  btn.style.display = (state.analyzed && unclassified.length) ? "" : "none";
+  btn.textContent = `🤖 AI로 재분류 (${unclassified.length})`;
+}
+
+async function aiReclassify() {
+  const unclassified = Object.values(state.files).flatMap(f => f.items)
+    .filter(i => i.final_category === "미분류");
+  if (!unclassified.length) return;
+  const btn = $("btnAiReclassify");
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = "⏳ AI 분류 중…";
+  try {
+    const list = unclassified.map((it, i) =>
+      `${i + 1}. [섹션: ${it.category_hint || "없음"}] ${it.name} | ${it.spec || ""} | ${it.remark || ""}`).join("\n");
+    const prompt = `아래 견적 항목들을 주어진 분류 중 하나로 분류하라. 품명/사양/섹션 문맥을 종합적으로 판단하고, 표현이 조금 달라도 유사한 내용이면 같은 분류로 묶어라.
+사용 가능한 분류: ${QA.COST_CATEGORIES.filter(c => c !== "미분류").join(", ")}
+
+항목:
+${list}
+
+반드시 아래 JSON 배열 형식으로만 답하라 (다른 설명 없이):
+[{"index":1,"category":"분류명"},...]`;
+    const res = await fetch(CHAT_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + CHAT_API_KEY },
+      body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "user", content: prompt }], max_tokens: 2000, temperature: 0 }),
+    });
+    if (!res.ok) throw new Error("API 오류 (HTTP " + res.status + ")");
+    const data = await res.json();
+    const content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+    const m = content.match(/\[[\s\S]*\]/);
+    if (!m) throw new Error("AI 응답에서 결과를 찾지 못했습니다.");
+    const results = JSON.parse(m[0]);
+    let n = 0;
+    results.forEach(r => {
+      const it = unclassified[(r.index || 0) - 1];
+      if (it && QA.COST_CATEGORIES.includes(r.category)) {
+        it.final_category = r.category;
+        it.confidence = 80;
+        it.reason = "AI 재분류";
+        it.is_modified = true;
+        n++;
+      }
+    });
+    if (n) { renderAll(); alert(`✅ ${n}개 항목을 AI로 재분류했습니다.`); }
+    else alert("⚠️ 적용된 항목이 없습니다. AI 응답을 확인해 주세요.");
+  } catch (e) {
+    alert("AI 재분류 실패: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+// ─── 💬 분석 도우미 (LLM 챗봇) ────────────────────────────────
+const CHAT_API_URL = "https://bai.hpc.lge.com:10602/api/v1/chat/completions";
+const CHAT_API_KEY = "sk-9370684cc9794f03b2b951b02bab8d98";
+const CHAT_MODEL = "Qwen/Qwen3.8-27B-FP8";
+let chatHistory = [];   // {role, content}
+let chatBusy = false;
+
+function chatAllItems() {
+  return Object.values(state.files).flatMap(f => f.items);
+}
+
+function buildChatContext() {
+  const items = chatAllItems();
+  const scen = getScenarios();
+  let ctx = "## 비교안 집계\n";
+  scen.forEach(s => {
+    const cats = Object.entries(s.categoryTotals)
+      .filter(([, v]) => v !== 0)
+      .map(([c, v]) => `${c} ${Math.round(v).toLocaleString()}`).join(", ");
+    ctx += `- ${s.name}: 총 ${Math.round(s.totalAmount).toLocaleString()}원 (${cats})\n`;
+  });
+  ctx += "\n## 견적 항목 목록 (번호 = 표의 행 순서)\n";
+  items.forEach((it, i) => {
+    ctx += `${i + 1}. [행${it.source_row}] ${it.name.slice(0, 30)} | ${Math.round(it.amount).toLocaleString()}원 | ${it.final_category}\n`;
+  });
+  return ctx;
+}
+
+function chatSystemPrompt() {
+  return `너는 "원가구성 비교 분석 도구"의 분석 도우미다. 사용자의 요청에 따라 분석 데이터를 조회하거나 수정한다.
+
+사용 가능한 비용 분류: ${QA.COST_CATEGORIES.join(", ")}
+
+## 현재 분석 데이터
+${buildChatContext()}
+
+## 규칙
+1. 항상 한국어로 간결하게 답한다.
+2. "N번째 항목"은 위 목록의 번호 N을 의미한다. "N~M번"은 N부터 M까지의 항목을 의미한다.
+3. 항목의 분류를 수정해 달라는 요청이면, 답의 마지막 줄에 반드시 아래 형식의 ACTION 줄을 포함하라:
+ACTION: {"action":"reclassify","indices":[50],"category":"기구 재료비"}
+   - indices는 수정할 항목 번호 배열, category는 위 분류 중 하나
+4. 조회 요청(총액, 미분류 목록 등)이면 ACTION 없이 텍스트로만 답한다.
+5. 데이터에 없는 요청이면 그렇게 알려준다.`;
+}
+
+function chatAppend(role, text) {
+  const log = $("chatLog");
+  const div = document.createElement("div");
+  div.className = "msg " + role;
+  div.textContent = text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  return div;
+}
+
+async function sendChat() {
+  const input = $("chatInput");
+  const text = input.value.trim();
+  if (!text || chatBusy) return;
+  if (!state.analyzed) {
+    chatAppend("bot", "⚠️ 먼저 파일을 선택하고 [분석 시작]을 눌러주세요.");
+    input.value = "";
+    return;
+  }
+  input.value = "";
+  chatAppend("user", text);
+  chatBusy = true;
+  $("chatSend").disabled = true;
+  const typing = chatAppend("bot", "…");
+
+  try {
+    const messages = [
+      { role: "system", content: chatSystemPrompt() },
+      ...chatHistory.slice(-8),
+      { role: "user", content: text },
+    ];
+    const res = await fetch(CHAT_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + CHAT_API_KEY },
+      body: JSON.stringify({ model: CHAT_MODEL, messages, max_tokens: 1500, temperature: 0 }),
+    });
+    if (!res.ok) throw new Error("API 오류 (HTTP " + res.status + ")");
+    const data = await res.json();
+    const content = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+    if (!content) throw new Error("응답이 비어 있습니다. 다시 시도해 주세요.");
+
+    // ACTION 추출 + 실행
+    const m = content.match(/ACTION:\s*(\{[\s\S]*\})/);
+    let reply = content.replace(/ACTION:\s*\{[\s\S]*\}/, "").trim();
+    if (m) {
+      try {
+        const act = JSON.parse(m[1]);
+        if (act.action === "reclassify" && Array.isArray(act.indices) && QA.COST_CATEGORIES.includes(act.category)) {
+          const items = chatAllItems();
+          let n = 0;
+          act.indices.forEach(idx => {
+            const it = items[idx - 1];
+            if (it) {
+              it.final_category = act.category; it.is_modified = true;
+              QA.learnFromCorrection(it.name, it.spec, act.category);
+              n++;
+            }
+          });
+          if (n) { state.userRules = QA.loadRules(); renderAll(); }
+          reply += (n ? `\n✅ ${n}개 항목을 "${act.category}"(으)로 수정했습니다.` : "\n⚠️ 해당하는 항목을 찾지 못했습니다.");
+        }
+      } catch (e) { /* JSON 파싱 실패 시 텍스트만 표시 */ }
+    }
+    typing.textContent = reply;
+    chatHistory.push({ role: "user", content: text }, { role: "assistant", content: reply });
+    if (chatHistory.length > 12) chatHistory = chatHistory.slice(-12);
+  } catch (err) {
+    typing.textContent = "⚠️ " + err.message;
+  } finally {
+    chatBusy = false;
+    $("chatSend").disabled = false;
+    $("chatLog").scrollTop = $("chatLog").scrollHeight;
+    input.focus();
+  }
 }
 
 // ─── 시작 ────────────────────────────────────────────────────
