@@ -555,7 +555,8 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
   const sumRanges = [];
   if (ws && ws["!ref"]) {
     const fr = XLSX.utils.decode_range(ws["!ref"]);
-    const sumRe = /^=SUM\(([A-Z]{1,3})(\d+):([A-Z]{1,3})(\d+)\)$/i;
+    // SheetJS는 수식을 "=" 없이 "SUM(I1830:I2149)"로 저장 → "=" 선택 처리
+    const sumRe = /^=?\s*SUM\(([A-Z]{1,3})(\d+):([A-Z]{1,3})(\d+)\)$/i;
     for (let rr = fr.s.r; rr <= fr.e.r; rr++) {
       for (let cc = fr.s.c; cc <= fr.e.c; cc++) {
         const cell = ws[XLSX.utils.encode_cell({ r: rr, c: cc })];
@@ -679,7 +680,15 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
     const isSectionMarker = (text) => {
       const h = String(text).replace(/\s+/g, "");
       if (!h) return false;
-      if (PAREN_PREFIX_RE.test(h)) return false;
+      if (PAREN_PREFIX_RE.test(h)) {
+        // 괄호형 섹션 마커: "(2) 전장", "(1)기구설계" 등 — 내부 텍스트가 섹션 키워드면 마커
+        // ("(1) Unit명" 같은 Unit 소계는 키워드 없음 → 마커 아님)
+        const inner = h.replace(PAREN_PREFIX_RE, "");
+        if (SECTION_KW.some(kw => inner.includes(kw)) ||
+            SECTION_NAMES.some(sec => inner.includes(sec)) ||
+            inner.includes("설계") || inner.includes("인건")) return true;
+        return false;
+      }
       if (BRACKET_RE.test(h)) return true;
       if (PAREN_ONLY_RE.test(h) || BRACKET_ONLY_RE.test(h)) return false;
       if (h.includes("소계") || h.includes("합계")) return true;
@@ -788,11 +797,19 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
     }
 
     // 4단계: 소계 SUM 범위 백필 (가장 정확한 섹션 경계)
+    // 기존 섹션 컨텍스트(전장/제어 등)가 있으면 소계 컨텍스트와 결합 (덮어쓰지 않음)
+    // → "(2) 전장" 섹션 내 "구매품 소계" 항목이 전장 구매품으로 구분되도록
     for (const sr of sumRanges) {
       const hint = sectionHintMap[sr.subtotalRow] || "";
       if (hint) {
         for (let r = sr.start; r <= Math.min(sr.end, rows.length - 1); r++) {
-          if (r > headerIdx) sectionHintMap[r] = hint;
+          if (r <= headerIdx) continue;
+          const existing = sectionHintMap[r] || "";
+          if (!existing) {
+            sectionHintMap[r] = hint;
+          } else if (existing !== hint && !existing.includes(hint) && !hint.includes(existing)) {
+            sectionHintMap[r] = existing + " " + hint;
+          }
         }
       }
     }

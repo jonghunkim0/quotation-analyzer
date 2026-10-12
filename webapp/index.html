@@ -96,7 +96,7 @@
 </head>
 <body>
 <header>
-  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.3.6 · 업데이트 2026. 10. 12.</span></h1>
+  <h1>📊 원가구성 비교 분석 도구 <span class="ver">ver 1.3.7 · 업데이트 2026. 10. 12.</span></h1>
   <p>Excel/PDF 견적서 선택 → 자동 분류 → 원가구성 비교 차트 &nbsp;|&nbsp; 🔒 모든 데이터는 이 브라우저 안에서만 처리됩니다 (외부 전송 없음)</p>
 </header>
 
@@ -763,7 +763,8 @@ function renderChart() {
     legend: { top: 30 },
     grid: { left: 60, right: 60, top: 125, bottom: 40 },
     xAxis: { type: "category", data: xLabels, axisLabel: { fontSize: 12 } },
-    yAxis: { type: "value", name: `금액 (${unit})`, max: maxGroupTotal * 1.35 },
+    yAxis: { type: "value", name: `금액 (${unit})`, max: maxGroupTotal * 1.35,
+             axisLabel: { formatter: v => v.toLocaleString("ko-KR", { maximumFractionDigits: 0 }) } },
     series: g1Series,
     graphic: kpiLabels1,
   };
@@ -860,7 +861,8 @@ function renderChart() {
       legend: { top: 30, type: "plain" },
       grid: { left: 60, right: 60, top: 125, bottom: 40 },
       xAxis: { type: "category", data: xLabels, axisLabel: { fontSize: 12 } },
-      yAxis: { type: "value", name: `금액 (${unit})`, max: maxVal * 1.35 },
+      yAxis: { type: "value", name: `금액 (${unit})`, max: maxVal * 1.35,
+               axisLabel: { formatter: v => v.toLocaleString("ko-KR", { maximumFractionDigits: 0 }) } },
       series: series,
       graphic: kpiLabels,
     };
@@ -973,9 +975,9 @@ function bindEvents() {
       const files = Object.values(state.files);
       const xlsxFiles = files.filter(f => f.buf && f.type === "xlsx");
       if (xlsxFiles.length === 0) {
-        const rows = [["비교안","파일","시트/페이지","행","품명","사양","수량","단가","금액","자동분류","신뢰도","최종분류","수정"]];
+        const rows = [["비교안","파일","시트/페이지","행","품명","사양","수량","단가","금액","자동분류","신뢰도","최종분류","수정","판정사유"]];
         files.flatMap(f => f.items).forEach(it =>
-          rows.push([it.scenario, it.source_file, it.source_sheet, it.source_row, it.name, it.spec, it.quantity, it.unit_price, it.amount, it.auto_category, Math.round(it.confidence), it.final_category, it.is_modified ? "Y" : "N"]));
+          rows.push([it.scenario, it.source_file, it.source_sheet, it.source_row, it.name, it.spec, it.quantity, it.unit_price, it.amount, it.auto_category, Math.round(it.confidence), it.final_category, it.is_modified ? "Y" : "N", it.reason || ""]));
         QA.exportExcel("견적항목.xlsx", { "견적항목": rows });
         return;
       }
@@ -1026,7 +1028,18 @@ function bindEvents() {
         }
       }
     }
-    const col = lastCol + 1;
+    // 기존 "자동분류" 헤더가 있으면 해당 열 재사용 (재실행 시 중복 셀 방지)
+    let col = lastCol + 1;
+    for (let r = range.s.r; r <= Math.min(range.e.r, range.s.r + 5); r++) {
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cell = ws[XLSX.utils.encode_cell({ r, c })];
+        if (cell && String(cell.v).trim() === "자동분류") {
+          col = c;
+          break;
+        }
+      }
+      if (col !== lastCol + 1) break;
+    }
     const colLetter = c => { let s = ""; c++; while (c > 0) { c--; s = String.fromCharCode(65 + c % 26) + s; c = Math.floor(c / 26); } return s; };
 
     // 인라인 문자열 셀 생성 (sharedStrings 불필요)
@@ -1035,7 +1048,7 @@ function bindEvents() {
     const numCell = (ref, num) => `<c r="${ref}"><v>${num}</v></c>`;
 
     // dimension 확장
-    const newLastCol = col + 3;
+    const newLastCol = col + 4;
     const dimM = sheetXml.match(/<dimension ref="([^"]+)"/);
     if (dimM) {
       const dr = XLSX.utils.decode_range(dimM[1]);
@@ -1046,7 +1059,7 @@ function bindEvents() {
     // 행별 셀 삽입
     const rowInserts = new Map();
     // 헤더 행 (1행)
-    const headers = ["자동분류", "신뢰도(%)", "최종분류", "수정"];
+    const headers = ["자동분류", "신뢰도(%)", "최종분류", "수정", "판정사유"];
     rowInserts.set(1, headers.map((h, i) => inlineCell(colLetter(col + i) + "1", h)).join(""));
     // 데이터 행
     f.items.forEach(it => {
@@ -1056,19 +1069,38 @@ function bindEvents() {
         inlineCell(colLetter(col) + rn, it.auto_category) +
         numCell(colLetter(col + 1) + rn, Math.round(it.confidence)) +
         inlineCell(colLetter(col + 2) + rn, it.final_category) +
-        inlineCell(colLetter(col + 3) + rn, it.is_modified ? "Y" : "N");
+        inlineCell(colLetter(col + 3) + rn, it.is_modified ? "Y" : "N") +
+        inlineCell(colLetter(col + 4) + rn, it.reason || "");
       rowInserts.set(rn, (rowInserts.get(rn) || "") + cells);
     });
 
     // sheetXml에 행별 삽입
-    sheetXml = sheetXml.replace(/<row\b[^>]*\br="(\d+)"[^>]*>([\s\S]*?)<\/row>/g, (m, rn) => {
+    // - 기존 동일 참조 셀을 먼저 제거 (중복 셀 참조 → Excel "읽을 수 없는 콘텐츠" 오류 방지)
+    // - spans 속성을 새 열 범위로 확장 (spans 범위 밖 셀 → Excel 무결성 오류 방지)
+    const newMaxCol1 = col + 5; // 1-based
+    const fixSpans = attrs => {
+      const sm = attrs.match(/\bspans="(\d+):(\d+)"/);
+      if (sm && parseInt(sm[2]) < newMaxCol1) {
+        return attrs.replace(/\bspans="\d+:\d+"/, `spans="${sm[1]}:${newMaxCol1}"`);
+      }
+      return attrs;
+    };
+    const stripOldCells = (body, rn) => {
+      let b = body;
+      for (let i = 0; i < 5; i++) {
+        const ref = colLetter(col + i) + rn;
+        b = b.replace(new RegExp(`<c r="${ref}"[^>]*?(?:/>|[\\s\\S]*?</c>)`), "");
+      }
+      return b;
+    };
+    sheetXml = sheetXml.replace(/<row\b([^>]*\br="(\d+)"[^>]*)>([\s\S]*?)<\/row>/g, (m, attrs, rn, body) => {
       const n = parseInt(rn);
-      if (rowInserts.has(n)) return m.replace(/<\/row>$/, rowInserts.get(n) + "</row>");
-      return m;
+      if (!rowInserts.has(n)) return m;
+      return `<row${fixSpans(attrs)}>${stripOldCells(body, n)}${rowInserts.get(n)}</row>`;
     });
     sheetXml = sheetXml.replace(/<row\b([^>]*\br="(\d+)"[^>]*)\/>/g, (m, attrs, rn) => {
       const n = parseInt(rn);
-      if (rowInserts.has(n)) return `<row${attrs}>${rowInserts.get(n)}</row>`;
+      if (rowInserts.has(n)) return `<row${fixSpans(attrs)}>${rowInserts.get(n)}</row>`;
       return m;
     });
 
