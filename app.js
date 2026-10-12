@@ -3,46 +3,61 @@
  * Python 버전의 로직을 JavaScript로 이식
  * ============================================================ */
 
-// ─── 비용 분류 (13개) ────────────────────────────────────────
+// ─── 비용 분류 (20개) ────────────────────────────────────────
 const COST_CATEGORIES = [
-  "기구 재료비", "전장·제어 재료비", "사급품", "구매품",
-  "기구설계 인건비", "제어설계 인건비", "조립 인건비",
-  "셋업 인건비(기구)", "셋업 인건비(제어)", "셋업 인건비(전장)", "양산대응 인건비",
-  "경비", "마진", "미분류",
+  "사급품",
+  "기구 구매품", "기구 가공품", "제어 구매품", "전장 구매품", "전장 가공품",
+  "인건비-기구 설계", "인건비-전장 설계", "인건비-제어 설계",
+  "인건비-기구 조립", "인건비-전장/제어 조립",
+  "인건비-기구 셋업", "인건비-전장/제어 셋업",
+  "인건비-기구 양산대응", "인건비-전장/제어 양산대응", "인건비-특수제어",
+  "경비-포장", "경비-기타", "경비-숙박/교통/항공",
+  "마진", "미분류",
 ];
 
 const COST_GROUPS = {
-  "재료비": ["기구 재료비", "전장·제어 재료비", "구매품", "사급품"],
-  "인건비": ["기구설계 인건비", "제어설계 인건비", "조립 인건비",
-             "셋업 인건비(기구)", "셋업 인건비(제어)", "셋업 인건비(전장)", "양산대응 인건비", "경비"],
-  "기업이윤": ["마진"],
-  "기타": ["미분류"],
+  "재료비": ["사급품", "기구 구매품", "기구 가공품", "제어 구매품", "전장 구매품", "전장 가공품"],
+  "인건비": ["인건비-기구 설계", "인건비-전장 설계", "인건비-제어 설계",
+             "인건비-기구 조립", "인건비-전장/제어 조립",
+             "인건비-기구 셋업", "인건비-전장/제어 셋업",
+             "인건비-기구 양산대응", "인건비-전장/제어 양산대응", "인건비-특수제어"],
+  "경비": ["경비-포장", "경비-기타", "경비-숙박/교통/항공"],
+  "기타": ["마진"],
+  "별도 관리": ["미분류"],
 };
 
-const GROUP_NAMES = ["재료비", "인건비", "기업이윤", "기타"];
+const GROUP_NAMES = ["재료비", "인건비", "경비", "기타", "별도 관리"];
 
 const GROUP_COLORS = {
   "재료비": "#3B82F6",
   "인건비": "#F97316",
-  "기업이윤": "#EF4444",
-  "기타": "#6B7280",
+  "경비": "#64748B",
+  "기타": "#EF4444",
+  "별도 관리": "#6B7280",
 };
 
 const DEFAULT_STACK_ORDER = [
-  "기구 재료비", "전장·제어 재료비", "구매품", "사급품",
-  "기구설계 인건비", "제어설계 인건비", "조립 인건비",
-  "셋업 인건비(기구)", "셋업 인건비(제어)", "셋업 인건비(전장)", "양산대응 인건비",
-  "경비", "마진", "미분류",
+  "사급품",
+  "기구 구매품", "기구 가공품", "제어 구매품", "전장 구매품", "전장 가공품",
+  "인건비-기구 설계", "인건비-전장 설계", "인건비-제어 설계",
+  "인건비-기구 조립", "인건비-전장/제어 조립",
+  "인건비-기구 셋업", "인건비-전장/제어 셋업",
+  "인건비-기구 양산대응", "인건비-전장/제어 양산대응", "인건비-특수제어",
+  "경비-포장", "경비-기타", "경비-숙박/교통/항공",
+  "마진", "미분류",
 ];
 
 const CATEGORY_COLORS = {
-  "기구 재료비": "#4B5563", "전장·제어 재료비": "#9CA3AF",
-  "구매품": "#8B5CF6", "사급품": "#0D9488",
-  "기구설계 인건비": "#F97316", "제어설계 인건비": "#C2410C",
-  "조립 인건비": "#FACC15", "셋업 인건비(기구)": "#86EFAC",
-  "셋업 인건비(제어)": "#22C55E", "셋업 인건비(전장)": "#15803D",
-  "양산대응 인건비": "#0EA5E9",
-  "경비": "#64748B", "마진": "#EF4444", "미분류": "#1F2937",
+  "사급품": "#0D9488",
+  "기구 구매품": "#8B5CF6", "기구 가공품": "#4B5563",
+  "제어 구매품": "#7C3AED", "전장 구매품": "#6D28D9", "전장 가공품": "#A78BFA",
+  "인건비-기구 설계": "#F97316", "인건비-전장 설계": "#FB923C", "인건비-제어 설계": "#C2410C",
+  "인건비-기구 조립": "#FACC15", "인건비-전장/제어 조립": "#EAB308",
+  "인건비-기구 셋업": "#86EFAC", "인건비-전장/제어 셋업": "#22C55E",
+  "인건비-기구 양산대응": "#0EA5E9", "인건비-전장/제어 양산대응": "#38BDF8",
+  "인건비-특수제어": "#1D4ED8",
+  "경비-포장": "#64748B", "경비-기타": "#94A3B8", "경비-숙박/교통/항공": "#475569",
+  "마진": "#EF4444", "미분류": "#1F2937",
 };
 
 const DEFAULT_SCENARIOS = ["견적가", "구매 목표가", "개발 검토가"];
@@ -75,87 +90,95 @@ const TOTAL_ROW_KEYWORDS = [
   "부가세", "vat", "세금", "tax", "최종합계", "final total",
 ];
 
-// ─── 분류 키워드 규칙 ────────────────────────────────────────
+// ─── 분류 키워드 규칙 (20개 분류) ─────────────────────────────
 const CLASSIFICATION_RULES = {
-  "사급품": ["사급품", "사급", "고객사 지급", "고객 지급", "지급자재", "고객 제공",
-             "무상 지급", "customer supply", "customer supplied", "consigned",
-             "free issue", "고객부품", "고객제공"],
-  "구매품": ["구매품", "구매 part", "구매파트", "외주 구매", "상용품", "표준 구매",
-             "vendor item", "commercial part", "buy part", "purchased item",
-             "외부 조달",
-             // 기계 표준 구매 부품 (모터·실린더·로봇 등 장비에 들어가는 구매 부품)
-             "모터", "서보", "실린더", "로봇", "lm가이드", "lm 가이드", "볼스크류", "볼 스크류",
-             "베어링", "기어", "커플링", "벨트", "풀리", "스프링",
-             // 전장·제어 표준 구매 부품
-             "plc", "hmi", "센서", "인버터", "차단기", "릴레이", "스위치", "터미널",
-             "커넥터", "전원공급기", "psu", "컨택터", "마그네틱", "피더",
-             "브레이커", "조명", "램프", "버튼", "코일", "트랜스", "제어 부품",
-             // English
-             "motor", "servo", "cylinder", "robot", "lm guide", "lmguid", "ball screw", "ballscrew",
-             "bearing", "gear", "coupling", "belt", "pulley", "spring",
-             "plc", "hmi", "sensor", "inverter", "breaker", "relay", "switch",
-             "terminal", "connector", "power supply", "contactor", "magnetic", "feeder",
-             "lamp", "button", "coil", "transformer"],
-  "기구 재료비": ["프레임", "플레이트", "플라이트", "플레이트재", "브라켓", "브래킷",
+  "사급품": ["사급품", "사급", "고객사 지급", "고객 지급", "지급자재",
+             "고객 제공", "무상 지급", "customer supply", "customer supplied",
+             "consigned", "free issue", "고객부품", "고객제공"],
+  "기구 구매품": ["구매품", "구매 part", "구매파트", "외주 구매", "상용품",
+             "표준 구매", "vendor item", "commercial part", "buy part",
+             "purchased item", "외부 조달",
+             "모터", "서보", "실린더", "로봇", "lm가이드", "lm 가이드",
+             "볼스크류", "볼 스크류", "베어링", "기어", "커플링",
+             "벨트", "풀리", "스프링",
+             "볼트", "너트", "샤프트", "축", "플랜지", "스페이서"],
+  "기구 가공품": ["프레임", "플레이트", "플라이트", "플레이트재", "브라켓", "브래킷",
              "블라켓", "블랙켓", "가공품", "알루미늄", "프로파일",
-             "볼트", "너트", "기계 제작", "스페이서", "샤프트", "플랜지", "지지대", "베이스", "커버",
-             "하우징", "케이스", "스틸", "강판",
-             "frame", "plate", "bracket", "aluminum", "aluminium", "profile",
-             "bolt", "nut", "spacer", "shaft", "flange", "base", "cover", "housing", "case", "steel", "machined",
-             "mechanical part", "mechanical material",
-             // 약자 (단어 경계 매칭: matchKw)
-             "plt", "blk", "bkt"],
-  "전장·제어 재료비": ["판넬", "전선", "케이블", "전장품",
-             "panel", "wire", "cable", "electrical part", "electrical material"],
-  "기구설계 인건비": ["기구설계", "기계설계", "구조설계", "cad", "3d 설계", "2d 도면",
-             "상세설계", "도면 작성", "기구 설계", "기계 설계", "설계 인건",
-             "mechanical design", "mechanical engineering", "structural design",
-             "mechanical drawing"],
-  "제어설계 인건비": ["제어설계", "plc 프로그램", "hmi 프로그램", "소프트웨어 설계",
-             "전장설계", "회로설계", "제어 로직", "프로그램 개발", "제어 설계",
-             "sw 설계", "프로그래밍",
-             "control design", "control engineering", "plc programming",
-             "hmi programming", "software design", "circuit design", "programming"],
-  "조립 인건비": ["조립", "기계조립", "기구조립", "장비조립", "제작 인건비",
-             "조립 공수", "조립 인건", "설치 인건",
-             "assembly", "assemble", "installation labor"],
-  "셋업 인건비(기구)": ["기구 셋업", "기계 셋업", "기구 조정", "얼라인", "정밀 조정",
-             "기구 튜닝", "레벨링", "기구 세팅", "정렬", "셋업기구엔지니어",
-             "mechanical setup", "mechanical alignment", "align", "leveling",
-             "mechanical tuning"],
-  "셋업 인건비(제어)": ["프로그램 셋업", "제어 셋업", "시운전", "디버깅", "제어 튜닝",
+             "기계 제작", "스틸", "강판", "알루미늄재", "구리", "브라켓재",
+             "지지대", "베이스", "커버", "하우징", "케이스",
+             "plt", "blk", "bkt", "plate", "bracket"],
+  "제어 구매품": ["plc", "hmi", "센서", "인버터", "차단기", "릴레이", "스위치",
+             "터미널", "커넥터", "전원공급기", "psu", "컨택터",
+             "마그네틱", "피더", "브레이커", "조명", "램프", "버튼",
+             "코일", "트랜스", "제어 부품"],
+  "전장 가공품": ["제어 가공", "컨트롤 박스", "제어 박스",
+             "전장 가공", "전장부 가공", "판넬 가공",
+             "케이블", "전선", "전장품", "라미네이트", "정류기",
+             "판넬"],
+  "전장 구매품": ["전장 구매", "전장품 구매", "케이블 구매"],
+  "인건비-기구 설계": ["기구설계", "기계설계", "구조설계", "cad", "3d 설계", "2d 도면",
+             "상세설계", "도면 작성", "기구 설계", "기계 설계", "설계 인건"],
+  "인건비-전장 설계": ["전장설계", "회로설계"],
+  "인건비-제어 설계": ["제어설계", "제어 설계",
+             "plc 프로그램", "hmi 프로그램", "소프트웨어 설계",
+             "제어 로직", "프로그램 개발", "sw 설계", "프로그래밍",
+             "plc", "hmi"],
+  "인건비-기구 조립": ["기구조립", "기계조립", "기구 조립"],
+  "인건비-전장/제어 조립": ["조립", "장비조립", "전장 조립", "제어 조립",
+             "제작 인건비", "조립 공수", "조립 인건", "설치 인건"],
+  "인건비-기구 셋업": ["기구 셋업", "기계 셋업", "기구 조정", "얼라인", "정밀 조정",
+             "기구 튜닝", "레벨링", "기구 세팅", "정렬", "셋업기구엔지니어"],
+  "인건비-전장/제어 셋업": ["프로그램 셋업", "제어 셋업", "시운전", "디버깅", "제어 튜닝",
              "plc 셋업", "hmi 셋업", "제어 세팅", "동작 테스트", "셋업제어엔지니어",
-             "control setup", "commissioning", "test run", "debugging",
-             "control tuning", "operation test"],
-  "셋업 인건비(전장)": ["현장 배선", "전장 셋업", "판넬 설치", "판넬 결선",
-             "케이블 포설", "입출력 확인", "전장 공사", "배선", "결선", "셋업전장엔지니어",
-             "field wiring", "electrical setup", "panel installation",
-             "cable laying", "wiring", "electrical work"],
-  "양산대응 인건비": ["양산", "양산대응", "양산 대응", "양산인건", "양산 인건",
+             "현장 배선", "전장 셋업", "판넬 설치", "판넬 결선",
+             "케이블 포설", "입출력 확인", "전장 공사", "배선", "결선", "셋업전장엔지니어"],
+  "인건비-기구 양산대응": ["양산 기구", "양산대응 기구", "양산 인건 기구"],
+  "인건비-전장/제어 양산대응": ["양산", "양산대응", "양산 대응", "양산인건", "양산 인건",
              "양산체계", "양산대기", "양산사원", "양산지원",
-             "mass production", "mp response"],
-  "경비": ["운송비", "출장비", "숙박비", "교통비", "포장비", "안전관리비",
-             "일반관리비", "보험료", "설치 경비", "현장 경비", "배송비", "운반비",
-             "관리비", "경비",
-             "transportation", "delivery", "shipping", "travel", "accommodation",
-             "packaging", "insurance", "overhead", "expense"],
+             "양산 전장", "양산 제어"],
+  "인건비-특수제어": ["pmac", "umac", "모션", "특수 제어", "특수제어",
+             "제어 인건", "인건비-특수제어", "제어"],
+  "경비-포장": ["포장", "포장비", "패키징", "packaging"],
+  "경비-기타": ["기타", "기타항목", "기타 비용"],
+  "경비-숙박/교통/항공": ["운송비", "출장비", "숙박비", "교통비", "안전관리비",
+             "일반관리비", "보험료", "설치 경비", "현장 경비", "배송비",
+             "운반비", "관리비", "경비", "이동", "국내이동", "항공"],
   "마진": ["마진", "이윤", "profit", "margin", "영업이익", "이익률", "이익", "수익"],
 };
 
-const PRIORITY_CATEGORIES = ["사급품", "구매품"];
+// 인건비 그룹 카테고리 (인건비 섹션에서 매칭 대상)
+const LABOR_GROUP_CATS = new Set(COST_GROUPS["인건비"]);
 
-// 규칙 1: 항목 내용에 명시된 분류 정보(사급/구매품/가공품 등) → 최우선
-// (가공품은 독립 카테고리가 아니라 기구 재료비로 분류)
+// 우선순위: 사급품이 명시되면 최우선
+const PRIORITY_CATEGORIES = ["사급품"];
+
+// 규칙 1: 항목 내용에 명시된 분류 정보 → 최우선
 const EXPLICIT_CLASSIFICATION = {
   "사급품": ["사급품", "사급"],
-  "구매품": ["구매품"],
-  "기구 재료비": ["가공품"],
+  "기구 구매품": ["구매품"],
+  "기구 가공품": ["가공품"],
 };
 
-// 규칙 2: 섹션 헤더("구매품 소개", "가공품 소개" 등) → 섹션 내 항목 통일 분류
+// 규칙 2: 섹션 헤더 → 섹션 내 항목 통일 분류
 const SECTION_CLASSIFICATION = {
-  "구매품": ["구매품"],
-  "기구 재료비": ["가공품"],
+  "기구 구매품": ["구매품"],
+  "기구 가공품": ["가공품"],
+  "제어 구매품": ["제어 구매", "제어구매품", "제어 구매품"],
+  "전장 구매품": ["전장 구매", "전장구매품", "전장 구매품"],
+  "전장 가공품": ["전장/제어", "전장제어", "전장·제어", "전장 제어", "전장 재료", "전장재료"],
+};
+
+// 규칙 2-1: 섹션 힌트에 전장/제어 계열이 있으면 기구 구매품 우선 매칭 건너뜀
+const ELEC_SECTION_KWS = ["전장", "제어", "전기", "electrical", "control", "wiring", "cable"];
+
+// 규칙 2 (2축 결정): 전장/제어 섹션에서 기구 계열로 매칭된 분류 → 전장/제어 대응 분류 재조정
+const ELEC_FAMILY_REMAP = {
+  "기구 구매품": "전장 구매품",
+  "기구 가공품": "전장 가공품",
+  "인건비-기구 설계": "인건비-전장 설계",
+  "인건비-기구 조립": "인건비-전장/제어 조립",
+  "인건비-기구 셋업": "인건비-전장/제어 셋업",
+  "인건비-기구 양산대응": "인건비-전장/제어 양산대응",
 };
 
 // 규칙 3: 품명에 플레이트/브라켓 계열이 있으면 구매품 우선 매칭을 건너뜀
@@ -283,7 +306,7 @@ function propagateSimilar(items) {
 
 // ─── 자동 분류 ───────────────────────────────────────────────
 function classifyItem(item, userRules) {
-  const texts = [item.name, item.spec, item.remark, item.category_hint].filter(Boolean);
+  const texts = [item.name, item.spec, item.remark, item.category_hint, item.raw_row_text].filter(Boolean);
   const combined = texts.join(" ");
   const normCombined = normalizeText(combined);
 
@@ -298,32 +321,57 @@ function classifyItem(item, userRules) {
     }
   }
 
-  // 1-1) 규칙 1: 항목 내용에 명시된 분류 정보(사급/구매품/가공품) → 최우선
+  const normHint = normalizeText(item.category_hint);
+  const isElecSection = normHint ? ELEC_SECTION_KWS.some(kw => matchKw(kw, normHint)) : false;
+  const isLaborSection = normHint ? normHint.includes("인건") : false;
+
+  // 1-1b) 품명 계열 고정: 품명에 "기구"/"전장"/"제어"가 명시되면 계열 고정
+  const normNameForFamily = normalizeText(item.name || "");
+  const nameIsMech = normNameForFamily.includes("기구") || normNameForFamily.includes("기계");
+  const nameIsElec = (normNameForFamily.includes("전장") || normNameForFamily.includes("제어")) && !nameIsMech;
+  if (nameIsMech) {
+    // 품명에 "기구" 명시 → 전장/제어 리맵 차단
+    // (isElecSection은 유지하되 리맵만 차단 — 아래 remap에서 nameIsMech 체크)
+  }
+
+  // 1-1a) "사급"이 같은 행 어디에든 명시되면 무조건 사급품 (최고 우선순위)
+  if (["사급", "사급품", "고객부품", "고객제공"].some(kw => matchKw(kw, normCombined))) {
+    return { category: "사급품", confidence: 98, keywords: ["사급"], reason: `항목에 '사급' 명시 → 사급품으로 분류 (품명: ${item.name})` };
+  }
+
+  // 1-1) 규칙 1: 항목 내용에 명시된 분류 정보(구매품/가공품) → 최우선
   for (const [cat, kws] of Object.entries(EXPLICIT_CLASSIFICATION)) {
     const matched = kws.filter(kw => matchKw(kw, normCombined));
     if (matched.length) {
-      return { category: cat, confidence: 95, keywords: matched, reason: `항목 내용에 '${matched.join(", ")}' 명시 → ${cat}으로 분류` };
+      // 전장/제어 섹션에서 기구 계열 매칭 → 전장/제어 계열로 리맵
+      let finalCat = cat;
+      if (isElecSection && !nameIsMech && ELEC_FAMILY_REMAP[cat]) {
+        finalCat = ELEC_FAMILY_REMAP[cat];
+      }
+      return { category: finalCat, confidence: 95, keywords: matched, reason: `항목 내용에 '${matched.join(", ")}' 명시 → ${finalCat}으로 분류` };
     }
   }
 
   // 1-2) 규칙 2: 섹션 헤더("구매품 소개", "가공품 소개" 등) → 섹션 내 항목 통일 분류
-  const normHint0 = normalizeText(item.category_hint);
-  if (normHint0) {
+  if (normHint) {
     for (const [cat, kws] of Object.entries(SECTION_CLASSIFICATION)) {
-      if (kws.some(kw => matchKw(kw, normHint0))) {
-        return { category: cat, confidence: 85, keywords: [item.category_hint], reason: `섹션 '${item.category_hint}' 기준 → ${cat}으로 통일 분류` };
+      if (kws.some(kw => matchKw(kw, normHint))) {
+        let finalCat = cat;
+        if (isElecSection && !nameIsMech && ELEC_FAMILY_REMAP[cat]) {
+          finalCat = ELEC_FAMILY_REMAP[cat];
+        }
+        return { category: finalCat, confidence: 85, keywords: [item.category_hint], reason: `섹션 '${item.category_hint}' 기준 → ${finalCat}으로 통일 분류` };
       }
     }
   }
 
-  // 2) 우선순위 (사급품/구매품)
-  //    단, 품명/비고에 인건비 성격(설계·조립·셋업·인건 등)이 있으면
-  //    사양의 부품 키워드(예: "제어설계 | PLC/HMI")가 구매품으로 오분류하지 않도록
-  //    구매품 우선 매칭만 건너뜀 (사급품은 명시적 신호이므로 그대로 적용)
-  const laborName = normalizeText(`${item.name || ""} ${item.remark || ""}`);
-  const isLaborItem = /설계|조립|셋업|세팅|인건|시운전|정렬|얼라인|튜닝|레벨링|결선|배선|포설|설치|도면|프로그래밍|개발|테스트|관리비|운송|출장|숙박|배송|포장|보험/.test(laborName);
+  // 2) 우선순위 분류 (사급품)
+  const laborName = normalizeText(`${item.name || ""} ${item.remark || ""} ${item.spec || ""}`);
+  const isLaborItem = /설계|조립|셋업|세팅|인건|시운전|정렬|얼라인|튜닝|레벨링|결선|배선|포설|설치|도면|프로그래밍|개발|테스트|관리비|운송|출장|숙박|배송|포장|보험|경력/.test(laborName);
+  const normName0 = normalizeText(item.name);
+  const isMechPart = MECH_PART_GUARD_KWS.some(kw => matchKw(kw, normName0));
   for (const pCat of PRIORITY_CATEGORIES) {
-    if (pCat === "구매품" && isLaborItem) continue;
+    if (pCat === "기구 구매품" && (isLaborItem || isMechPart || isElecSection)) continue;
     const kws = CLASSIFICATION_RULES[pCat] || [];
     const matched = kws.filter(kw => matchKw(kw, normCombined));
     if (matched.length) {
@@ -336,16 +384,21 @@ function classifyItem(item, userRules) {
   let bestCategory = "미분류", bestScore = 0, bestKeywords = [], bestReason = "";
   for (const category of COST_CATEGORIES) {
     if (category === "미분류") continue;
+    // 인건비 섹션: 인건비 그룹 외 카테고리 건너뜀
+    if (isLaborSection && !LABOR_GROUP_CATS.has(category)) continue;
+    // 전장/제어 섹션 내에서는 기구 구매품 점수 대폭 감점
+    if (category === "기구 구매품" && isElecSection) continue;
+    // 품명 계열 고정: 품명에 "기구" 있으면 전장/제어 계열 카테고리 건너뜀
+    if (nameIsMech && (category.includes("전장") || category.includes("제어"))) continue;
+    // 품명에 "전장/제어" 있으면 기구 계열 카테고리 건너뜀
+    if (nameIsElec && category.startsWith("기구")) continue;
     const kws = CLASSIFICATION_RULES[category] || [];
     const matched = kws.filter(kw => matchKw(kw, normCombined));
     if (matched.length) {
       let score = matched.length * 10;
       const normName = normalizeText(item.name);
       if (matched.some(kw => matchKw(kw, normName))) score += 15;
-      const normHint = normalizeText(item.category_hint);
       if (matched.some(kw => matchKw(kw, normHint))) score += 10;
-      // 설계/design 키워드가 품명에 있으면 해당 인건비 분류 우선 (예: "Control Design PLC/HMI" → 제어설계)
-      if (matched.some(kw => /design|설계/.test(kw) && matchKw(kw, normName))) score += 25;
       if (score > bestScore) {
         bestScore = score;
         bestCategory = category;
@@ -355,42 +408,31 @@ function classifyItem(item, userRules) {
     }
   }
 
-  // 4) 섹션 기반 폴백: 키워드 매칭 실패 시 엑셀의 부분 구분 이름으로 분류
-  //    번호([1], [2]...)에 의존하지 않고 섹션 이름의 키워드로 판단 → 협력사별 양식 차이 대응
+  // 3-0) 규칙 2 (2축 결정): 전장/제어 섹션에서 기구 계열로 매칭된 경우 → 전장/제어 대응 분류로 재조정
+  if (isElecSection && !nameIsMech && bestCategory in ELEC_FAMILY_REMAP) {
+    const remapped = ELEC_FAMILY_REMAP[bestCategory];
+    bestReason = `계열(전장/제어)×성격 조합 → '${bestCategory}'을(를) ${remapped}으로 재조정 (섹션 '${item.category_hint}')`;
+    bestCategory = remapped;
+    bestScore = Math.max(bestScore, 70);
+  }
+
+  // 3-1) 섹션 기반 폴백: "양산대응" 섹션 내 항목 → 인건비-전장/제어 양산대응
+  if (bestCategory === "미분류" && normHint.includes("양산대응")) {
+    return { category: "인건비-전장/제어 양산대응", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
+  }
+
+  // 3-2) 섹션 기반 폴백: "전장/제어" 섹션 내 항목 → 전장 가공품
+  if (bestCategory === "미분류" && isElecSection) {
+    return { category: "전장 가공품", confidence: 50, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}'(전장/제어) 기준 분류` };
+  }
+
+  // 3-3) 섹션 기반 폴백: "인건비" 섹션 내 항목 → 인건비-전장/제어 조립
+  if (bestCategory === "미분류" && normHint.includes("인건")) {
+    return { category: "인건비-전장/제어 조립", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}'(인건비) 기준 분류` };
+  }
+
+  // 4) 신뢰도 계산
   if (bestCategory === "미분류") {
-    const hint = normalizeText(item.category_hint);
-    // 양산대응 섹션 → 양산대응 인건비 (기구/전장 등 다른 폴백보다 우선)
-    if (/양산/.test(hint)) {
-      return { category: "양산대응 인건비", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
-    }
-    const hasMech = /기구|기계|구조|mechanical|structure/.test(hint);
-    const hasElec = /전장|제어|전기|electrical|electric|control/.test(hint);
-    if (hasMech && !hasElec) {
-      return { category: "기구 재료비", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
-    }
-    if (hasElec && !hasMech) {
-      return { category: "전장·제어 재료비", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
-    }
-    if (/인건|인력|labor|manpower/.test(hint)) {
-      if (/설계|design/.test(hint)) {
-        if (hasMech) return { category: "기구설계 인건비", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
-        if (hasElec) return { category: "제어설계 인건비", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
-      }
-      if (/조립|assembly/.test(hint)) {
-        return { category: "조립 인건비", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
-      }
-      if (/셋업|setup/.test(hint)) {
-        if (hasMech) return { category: "셋업 인건비(기구)", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
-        if (/전장|배선|wiring/.test(hint)) return { category: "셋업 인건비(전장)", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
-        if (hasElec) return { category: "셋업 인건비(제어)", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
-      }
-    }
-    if (/경비|관리비|운송|배송|포장|expense|overhead|transport|delivery|packaging/.test(hint)) {
-      return { category: "경비", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
-    }
-    if (/마진|이윤|profit|margin/.test(hint)) {
-      return { category: "마진", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}' 기준 분류` };
-    }
     return { category: "미분류", confidence: Math.min(40, bestScore), keywords: [], reason: "분류 근거가 부족합니다. 사용자 확인이 필요합니다." };
   }
 
@@ -427,22 +469,22 @@ function aggregateScenario(name, items, supplyOption) {
   });
 
   const supplyTotal = categoryTotals["사급품"];
-  const purchaseTotal = categoryTotals["구매품"];
+  const purchaseTotal = (categoryTotals["기구 구매품"] || 0) + (categoryTotals["제어 구매품"] || 0) + (categoryTotals["전장 구매품"] || 0);
 
   let supplyInMaterial = ["사급품을 재료비율에 포함", "사급품을 총원가에 포함"].includes(supplyOption);
   let supplyInTotal = ["사급품을 재료비율에 포함", "사급품을 총원가에 포함", "사급품을 재료비율에서 제외"].includes(supplyOption);
   if (supplyOption === "사급품을 금액 없이 참고 항목으로만 표시") { supplyInMaterial = false; supplyInTotal = false; }
 
-  let materialTotal = COST_GROUPS["재료비"].filter(c => c !== "사급품").reduce((s, c) => s + categoryTotals[c], 0);
+  let materialTotal = COST_GROUPS["재료비"].filter(c => c !== "사급품").reduce((s, c) => s + (categoryTotals[c] || 0), 0);
   if (supplyInMaterial) materialTotal += supplyTotal;
 
-  // 인건비 그룹에 경비 포함 (COST_GROUPS["인건비"]에 "경비" 포함)
-  const laborTotal = COST_GROUPS["인건비"].reduce((s, c) => s + categoryTotals[c], 0);
-  const expenseTotal = categoryTotals["경비"]; // 참고용 (laborTotal에 이미 포함)
-  const marginTotal = categoryTotals["마진"];
-  const unclassifiedTotal = categoryTotals["미분류"];
+  const laborTotal = COST_GROUPS["인건비"].reduce((s, c) => s + (categoryTotals[c] || 0), 0);
+  const expenseTotal = COST_GROUPS["경비"].reduce((s, c) => s + (categoryTotals[c] || 0), 0);
+  const marginTotal = categoryTotals["마진"] || 0;
+  const unclassifiedTotal = categoryTotals["미분류"] || 0;
 
-  const analysisCost = materialTotal + laborTotal; // 경비 이미 laborTotal에 포함
+  // 분석 원가 = 재료비 + 인건비 + 경비
+  const analysisCost = materialTotal + laborTotal + expenseTotal;
   const totalAmount = analysisCost + marginTotal + unclassifiedTotal;
 
   const baseTotal = totalAmount !== 0 ? totalAmount : 1;
@@ -486,9 +528,47 @@ function computeDeltas(scenarios) {
 }
 
 // ─── Excel 파싱 (SheetJS) ────────────────────────────────────
-function parseExcelSheet(rows, filename, sheetName, scenario, sumRows) {
+function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
   // rows: 2D array (header=None equivalent)
   // sumRows: Set(0-based 행 인덱스) — 다른 행을 참조하는 합산 수식 행 (분류 제외)
+  // ws: SheetJS worksheet (병합셀/수식 접근용)
+
+  // ── 병합 셀 전파 (헤더 탐지 이전) ──
+  if (ws && ws["!merges"]) {
+    for (const merge of ws["!merges"]) {
+      const { s, e } = merge;
+      const topLeft = ws[XLSX.utils.encode_cell({ r: s.r, c: s.c })];
+      if (!topLeft || topLeft.v === null || topLeft.v === undefined) continue;
+      const val = topLeft.v;
+      for (let r = s.r; r <= e.r; r++) {
+        for (let c = s.c; c <= e.c; c++) {
+          if (r === s.r && c === s.c) continue;
+          if (rows[r] && rows[r][c] === null) rows[r][c] = val;
+        }
+      }
+    }
+  }
+
+  // ── 소계 SUM 범위 추출 (섹션 경계 정확화) ──
+  // 소계 행의 =SUM(Xa:Xb) 수식에서 합산 범위 추출
+  // Returns: [{start, end, subtotalRow}] (0-based)
+  const sumRanges = [];
+  if (ws && ws["!ref"]) {
+    const fr = XLSX.utils.decode_range(ws["!ref"]);
+    const sumRe = /^=SUM\(([A-Z]{1,3})(\d+):([A-Z]{1,3})(\d+)\)$/i;
+    for (let rr = fr.s.r; rr <= fr.e.r; rr++) {
+      for (let cc = fr.s.c; cc <= fr.e.c; cc++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: rr, c: cc })];
+        if (!cell || !cell.f) continue;
+        const m = sumRe.exec(String(cell.f).trim());
+        if (m) {
+          sumRanges.push({ start: parseInt(m[2], 10) - 1, end: parseInt(m[4], 10) - 1, subtotalRow: rr });
+          break;
+        }
+      }
+    }
+  }
+
   // 헤더 행 탐지
   let headerIdx = -1, bestScore = 0;
   const maxScan = Math.min(15, rows.length);
@@ -585,53 +665,136 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows) {
   // 섹션 컨텍스트 사전 계산 (규칙 2):
   //  - 구분 셀이 있는 행 → 그 아래 항목들에 컨텍스트 전달 (기존)
   //  - "가공품 소계" 같은 하단 소계 행 → 그 소계가 묶은 위쪽 항목들(이전 소계/섹션 이후)에도 컨텍스트 부여
-  const sectionHintMap = new Array(rows.length).fill("");
+  const sectionHintMap = {};  // row -> hint (마커 행 + 전파/백필 행)
   {
-    // 1) 구분/No 셀에 섹션 마커가 있는 행 기록 + 하단 소계 행(구매품/가공품) 수집
-    // (실제 파일에서 "가공품 소계"는 No 열에 표기되는 경우가 있음)
-    const ownHint = {};
-    const subtotalRows = []; // {row, hint}
+    // Python _compute_section_context와 동일
+    const SECTION_NAMES = ["구매품", "가공품", "기구", "재료비", "인건비", "경비"];
+    const SECTION_KW = ["전장", "제어", "전기", "electrical", "control"];
+    const BRACKET_RE = /^\[(\d+)\](.*)$/;
+    const BRACKET_ONLY_RE = /^\[(\d+)\]$/;
+    const PAREN_PREFIX_RE = /^\(\d+\)/;
+    const PAREN_ONLY_RE = /^\(\d+\)$/;
+    const BRACKET_PREFIX_RE = /^\[\d+\]/;
+
+    const isSectionMarker = (text) => {
+      const h = String(text).replace(/\s+/g, "");
+      if (!h) return false;
+      if (PAREN_PREFIX_RE.test(h)) return false;
+      if (BRACKET_RE.test(h)) return true;
+      if (PAREN_ONLY_RE.test(h) || BRACKET_ONLY_RE.test(h)) return false;
+      if (h.includes("소계") || h.includes("합계")) return true;
+      if (h.toLowerCase().startsWith("unit명")) return true;
+      if (h.includes("소개") && SECTION_NAMES.some(sec => h.includes(sec))) return true;
+      return false;
+    };
+    const isSectionLevelHint = (text) => {
+      const h = String(text).replace(/\s+/g, "");
+      if (!h) return false;
+      if (BRACKET_PREFIX_RE.test(h)) return true;
+      if (h.includes("소계")) return true;
+      if (h.includes("합계")) return false;
+      if (h.includes("(") || h.includes("（")) return false;
+      if (SECTION_KW.some(kw => h.includes(kw))) return true;
+      if (SECTION_NAMES.includes(h)) return true;
+      if (h.includes("소개") && SECTION_NAMES.some(sec => h.includes(sec))) return true;
+      for (const cat of COST_CATEGORIES) { if (normalizeText(cat) === h) return true; }
+      return false;
+    };
+
+    const nameColIdx = colMap["품명"];
     const markerOf = (row) => {
-      const c = getCell(row, "구분");
-      if (c) return String(c).replace(/\s+/g, "");
-      // No 셀: 섹션 마커 형태(소계, [n] 섹션, Unit명)만 인정 — 일반 항목 번호("1)") 제외
-      const n = getNo(row);
-      if (n) {
-        const h = String(n).replace(/\s+/g, "");
-        if (h.includes("소계") || /^\[\d+\]/.test(h) || h.includes("unit명")) return h;
+      // 1) 품명 열 체크: 섹션 헤더(구매품 소개 등)면 반환, 일반 데이터 행이면 ""
+      if (nameColIdx !== undefined) {
+        const nv = row[nameColIdx];
+        if (nv !== null && nv !== undefined) {
+          const ns = String(nv).trim();
+          if (ns && !["-", "--", "—"].includes(ns)) {
+            const nsClean = ns.replace(/\s+/g, "");
+            if (SECTION_NAMES.some(sec => nsClean.includes(sec))) return ns;
+            return "";
+          }
+        }
       }
+      // 2) 나머지 열 스캔 (품명 열 제외)
+      let bracketVal = "", sectionNameVal = "", subtotalVal = "";
+      for (let c = 0; c < row.length; c++) {
+        const v = row[c];
+        if (v === null || v === undefined) continue;
+        const vStr = String(v).replace(/\s+/g, "").replace(/\n/g, "");
+        if (!vStr) continue;
+        if (c === nameColIdx) continue;
+        if ((vStr.includes("소계") || vStr.includes("합계")) && !subtotalVal) { subtotalVal = vStr; continue; }
+        if (isSectionMarker(vStr)) {
+          const bm = vStr.match(BRACKET_RE);
+          if (bm && !bracketVal) bracketVal = vStr;
+          else if (!sectionNameVal) sectionNameVal = vStr;
+          continue;
+        }
+        const bmOnly = vStr.match(BRACKET_ONLY_RE);
+        if (bmOnly) {
+          if (!bracketVal) bracketVal = `[${bmOnly[1]}]`;
+        } else if (isSectionLevelHint(vStr)) {
+          if (!sectionNameVal) sectionNameVal = vStr;
+        }
+      }
+      if (subtotalVal) {
+        if (bracketVal) return bracketVal + " " + subtotalVal;
+        return subtotalVal;
+      }
+      if (bracketVal && sectionNameVal) return bracketVal + sectionNameVal;
+      if (sectionNameVal) return sectionNameVal;
+      if (bracketVal) return bracketVal;
       return "";
     };
+
+    // 1단계: 마커 행 감지
+    const subtotalRows = [];
     for (let r = headerIdx + 1; r < rows.length; r++) {
       const row = rows[r] || [];
       const values = row.filter(v => v !== null && v !== undefined && String(v).trim() !== "");
       if (values.length === 0) continue;
       const h = markerOf(row);
       if (h) {
-        ownHint[r] = h;
-        // "소계"가 포함된 행만 하단 소계로 취급 ("구매품 소개" 같은 상단 헤더 제외)
-        if (h.includes("소계") && Object.values(SECTION_CLASSIFICATION).some(kws => kws.some(kw => h.includes(kw)))) {
-          subtotalRows.push({ row: r, hint: h });
-        }
+        sectionHintMap[r] = h;
+        if (h.includes("소계")) subtotalRows.push({ row: r, hint: h });
       }
     }
-    // 2) 하단 소계 행: 소계가 묶은 위쪽 항목 행(마커 없는 행)에 컨텍스트 부여
-    // 경계 = 소계 직전 중 섹션 마커가 있는 마지막 행
+
+    // 2단계: forward propagation (소계/합계 힌트는 아래로 전파하지 않음)
+    let cur = "";
+    for (let r = headerIdx + 1; r < rows.length; r++) {
+      if (r in sectionHintMap) {
+        const hint = sectionHintMap[r];
+        const hintClean = hint.replace(/\s+/g, "");
+        if (hint.includes("합계") && BRACKET_PREFIX_RE.test(hintClean)) {
+          cur = "";
+        } else if (!hint.includes("소계") && !hint.includes("합계")) {
+          cur = hint;
+        }
+      } else if (cur) {
+        sectionHintMap[r] = cur;
+      }
+    }
+
+    // 3단계: 하단 소계 백필 (소계가 묶은 위쪽 항목 행에 컨텍스트 부여)
     for (const st of subtotalRows) {
       let start = headerIdx;
       for (let r = st.row - 1; r > headerIdx; r--) {
-        if (ownHint[r]) { start = r; break; }
+        if (markerOf(rows[r] || [])) { start = r; break; }
       }
       for (let r = start + 1; r < st.row; r++) {
-        if (!ownHint[r] && !sectionHintMap[r]) sectionHintMap[r] = st.hint;
+        if (!(r in sectionHintMap)) sectionHintMap[r] = st.hint;
       }
     }
-    // 3) 나머지 행: 마지막 알려진 컨텍스트를 아래로 전파
-    let cur = "";
-    for (let r = headerIdx + 1; r < rows.length; r++) {
-      if (ownHint[r]) cur = ownHint[r];
-      else if (sectionHintMap[r]) cur = sectionHintMap[r];
-      sectionHintMap[r] = cur;
+
+    // 4단계: 소계 SUM 범위 백필 (가장 정확한 섹션 경계)
+    for (const sr of sumRanges) {
+      const hint = sectionHintMap[sr.subtotalRow] || "";
+      if (hint) {
+        for (let r = sr.start; r <= Math.min(sr.end, rows.length - 1); r++) {
+          if (r > headerIdx) sectionHintMap[r] = hint;
+        }
+      }
     }
   }
 
@@ -650,17 +813,44 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows) {
     const catHintCell = getCell(row, "구분");
     const vendor = getCell(row, "업체명");
 
-    // 섹션 컨텍스트: 구분 셀이 있으면 그것, 없으면 사전 계산된 섹션 컨텍스트
+    // 섹션 마커 행 슂 (예: "[2] 전장/제어", "(1) Unit명" — 견적 항목이 아님)
+    // 품명이 비어 있거나 섹션 이름만 있는 행은 데이터가 아님 (합계/소계 행 제외)
+    if (r in sectionHintMap) {
+      const nameCheck = name ? String(name).trim() : "";
+      const nameCheckH = nameCheck.replace(/\s+/g, "");
+      const isTotalName = nameCheckH && isTotalRow(nameCheckH);
+      if (!isTotalName && (!nameCheckH || nameCheckH.toLowerCase().startsWith("unit명") ||
+          ["구매품","가공품","기구","재료비","인건비","경비"].includes(nameCheckH))) {
+        continue;
+      }
+    }
+
+    // 섹션 컨텍스트: 구분 셀 + 섹션 컨텍스트 조합 (Python과 동일)
     // (셀에 줄바꿈이 섞여 있을 수 있음 → 공백 전부 제거)
-    const catHint = catHintCell ? String(catHintCell).replace(/\s+/g, "") : sectionHintMap[r];
+    const secHint = sectionHintMap[r] || "";
+    let catHint;
+    if (catHintCell) {
+      const cellHint = String(catHintCell).replace(/\s+/g, "");
+      catHint = (secHint && cellHint !== secHint) ? secHint + " " + cellHint : cellHint;
+    } else {
+      catHint = secHint;
+    }
 
     // 합산 수식 행 스킵 (예: 금액 셀이 =I18+I27 — 소계 합산 표기 행은 견적 항목이 아님)
     // 같은 행의 =단가*수량 수식은 실제 항목이므로 유지
     if (sumRows && sumRows.has(r)) continue;
 
     const rowText = values.map(String).join(" ");
-    const isTotal = isTotalRow(rowText);
+    let isTotal = isTotalRow(rowText);
     const isTax = isTotal && ["부가세", "vat", "세금", "tax"].some(kw => normalizeText(rowText).includes(normalizeText(kw)));
+
+    // 품명이 소계 카테고리명(구매품/가공품 등)이면 total 행으로 감지 (Python _SUBTOTAL_CATS)
+    if (!isTotal && name) {
+      const normNameCheck = normalizeText(String(name).trim());
+      if (normNameCheck && ["기구 구매품","전장 구매품","제어 구매품","기구 가공품","전장 가공품","사급품"].some(cat => normalizeText(cat) === normNameCheck)) {
+        isTotal = true;
+      }
+    }
 
     let amount = parseAmount(amountRaw) * amountMult;
     // 수량 셀이 비어 있을 때만 1로 간주. 명시적 0(예: "해외 셋업 제외" 행)은 0으로 유지
@@ -694,6 +884,7 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows) {
       remark: remark ? String(remark).trim() : "",
       category_hint: catHint,
       vendor: vendor ? String(vendor).trim() : "",
+      raw_row_text: rowText,
       scenario,
       auto_category: "미분류", confidence: 0, keywords: [], reason: "",
       final_category: "미분류", is_modified: false, is_tax: false, is_total_row: false,

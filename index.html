@@ -396,7 +396,8 @@ async function parseFile(entry) {
           }
         }
       }
-      const res = QA.parseExcelSheet(rows, entry.name, sheetName, "견적가", sumRows);
+      const scenName = entry.name.replace(/\.[^.]+$/, "");
+      const res = QA.parseExcelSheet(rows, entry.name, sheetName, scenName, sumRows, ws);
       if (res.error) { entry.error = res.error; }
       else {
         entry.items = res.items; entry.originalTotal = res.originalTotal;
@@ -405,7 +406,7 @@ async function parseFile(entry) {
       }
     } else if (entry.type === "pdf") {
       const buf = await readFileBuffer(entry);
-      const res = await QA.parsePDF(buf, entry.name, "견적가");
+      const res = await QA.parsePDF(buf, entry.name, entry.name.replace(/\.[^.]+$/, ""));
       entry.items = res.items; entry.originalTotal = res.originalTotal;
       entry.extractedTotal = res.extractedTotal; entry.taxAmount = res.taxAmount;
       entry.isScanned = res.isScanned;
