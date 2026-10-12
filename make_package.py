@@ -9,7 +9,7 @@ from pathlib import Path
 BASE = Path(__file__).parent
 
 # 앱 버전 (app.py의 APP_VERSION과 동기화)
-APP_VERSION = "1.3.5"
+APP_VERSION = "1.3.6"
 ZIP_NAME = BASE / f"quotation-analyzer-v{APP_VERSION}.zip"
 
 # 제외할 디렉터리/파일 패턴
