@@ -10,8 +10,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from parsers.excel_parser import ExcelParser
-from utils.helpers import parse_amount, format_amount, auto_detect_unit
+from quotation_analyzer.parsers.excel_parser import ExcelParser
+from quotation_analyzer.utils.helpers import parse_amount, format_amount, auto_detect_unit
 
 
 def _make_sample_excel(path: str):
@@ -105,15 +105,18 @@ def test_formula_row_excluded():
         qf = parser.parse_sheet(tmp_path, "세부", "test.xlsx")
         assert qf.status.value == "완료"
         names = [i.name for i in qf.items]
-        # 다른 행 참조 합산 수식 행(부분 헤더)은 제외
-        assert not any("공금부" in n for n in names), f"합산 수식 행이 항목에 포함됨: {names}"
+        # 다른 행 참조 합산 수식 행(부분 헤더)은 합산금액 항목으로 포함 (원가분석 제외)
+        sum_items = [i for i in qf.items if i.is_sum_row]
+        assert len(sum_items) == 1, f"합산 행이 1개여야 함: {[(i.name, i.sum_formula) for i in qf.items]}"
+        assert sum_items[0].final_category == "합산금액"
+        assert sum_items[0].sum_formula == "I7+I11", f"합산 수식 오류: {sum_items[0].sum_formula}"
         # 같은 행 =단가*수량 수식 행은 유지
         assert "SENSOR" in names, f"같은 행 수식 항목이 제외됨: {names}"
         # 실제 항목은 포함
         assert "SWITCH" in names
         assert "PUSH PLATE 01" in names
         # 소계 컨텍스트 전파 확인: PUSH PLATE → 기구 가공품
-        from classification.auto_classifier import AutoClassifier
+        from quotation_analyzer.classification.auto_classifier import AutoClassifier
         clf = AutoClassifier()
         for item in qf.items:
             if item.name == "PUSH PLATE 01":

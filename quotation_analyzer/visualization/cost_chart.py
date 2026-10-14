@@ -13,8 +13,8 @@ visualization/cost_chart.py - 원가구성 비교 대시보드 차트 (Plotly)
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from typing import Optional
-from models.data_models import Scenario
-from config import (
+from quotation_analyzer.models.data_models import Scenario
+from quotation_analyzer.config import (
     CATEGORY_COLORS,
     DEFAULT_STACK_ORDER,
     MATERIAL_RATE_LINE_COLOR,
@@ -22,7 +22,7 @@ from config import (
     INCREASE_COLOR,
     DECREASE_COLOR,
 )
-from utils.helpers import format_amount, safe_divide
+from quotation_analyzer.utils.helpers import format_amount, safe_divide
 
 # 그룹 표시명 (데이터 키와 다른 표시용)
 GROUP_DISPLAY_NAMES = {"재료비": "재료비(가공품)"}
@@ -88,6 +88,8 @@ class CostCompositionChart:
                     s.category_totals.get("사급품", 0) == 0 for s in self.scenarios
                 ):
                     continue
+            if cat == "합산금액":
+                continue  # 합산금액은 차트에 표시하지 않음 (이중합산 방지)
             cats.append(cat)
         return cats
 
@@ -96,7 +98,7 @@ class CostCompositionChart:
         """1차 차트용 그룹 합계 계산
         Returns: (group_order, group_totals, group_colors)
         """
-        from config import COST_GROUPS
+        from quotation_analyzer.config import COST_GROUPS
 
         group_order = ["사급품", "구매품", "재료비", "인건비", "경비", "기타"]
         group_colors = {

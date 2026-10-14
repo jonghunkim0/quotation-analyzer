@@ -2,13 +2,13 @@
 analysis/validator.py - 검증 로직
 """
 from typing import Optional
-from models.data_models import QuotationItem, QuotationFile, Scenario, ValidationIssue
-from config import (
+from quotation_analyzer.models.data_models import QuotationItem, QuotationFile, Scenario, ValidationIssue
+from quotation_analyzer.config import (
     COST_CATEGORIES,
     DEFAULT_TOLERANCE_ABS,
     DEFAULT_TOLERANCE_PCT,
 )
-from utils.helpers import safe_divide
+from quotation_analyzer.utils.helpers import safe_divide
 
 
 class Validator:
@@ -78,8 +78,11 @@ class Validator:
         """비교안 단위 검증"""
         issues = []
 
-        # 2. 분류별 합계 vs 전체 합계
-        cat_sum = sum(scenario.category_totals.values())
+        # 2. 분류별 합계 vs 전체 합계 (합산금액 제외 — 이중합산 방지)
+        cat_sum = sum(
+            v for k, v in scenario.category_totals.items()
+            if k != "합산금액"
+        )
         diff = abs(cat_sum - scenario.total_amount)
         tol = self._tolerance(scenario.total_amount)
         if diff > tol:

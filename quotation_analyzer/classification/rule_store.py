@@ -4,7 +4,7 @@ classification/rule_store.py - 사용자 분류 규칙 저장소 (로컬 JSON)
 import json
 from datetime import datetime
 from typing import Optional
-from config import RULES_FILE, DATA_DIR
+from quotation_analyzer.config import RULES_FILE, DATA_DIR
 
 
 class RuleStore:
@@ -102,7 +102,7 @@ class RuleStore:
             return None
 
         # 기존 규칙과 중복 확인
-        from utils.helpers import normalize_text
+        from quotation_analyzer.utils.helpers import normalize_text
         norm_text = normalize_text(text)
         for kw in self.rules:
             if normalize_text(kw) in norm_text:

@@ -118,7 +118,7 @@ def match_column(header: str, aliases: list) -> bool:
 
 def is_total_row(text: str) -> bool:
     """합계/소계 행인지 확인"""
-    from config import TOTAL_ROW_KEYWORDS
+    from quotation_analyzer.config import TOTAL_ROW_KEYWORDS
     norm = normalize_text(text)
     for kw in TOTAL_ROW_KEYWORDS:
         if normalize_text(kw) in norm:

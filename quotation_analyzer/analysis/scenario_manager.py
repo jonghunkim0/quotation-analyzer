@@ -2,9 +2,9 @@
 analysis/scenario_manager.py - 비교안 관리 로직
 """
 from typing import Optional
-from models.data_models import QuotationFile, Scenario
-from utils.helpers import generate_id
-from config import DEFAULT_SCENARIOS
+from quotation_analyzer.models.data_models import QuotationFile, Scenario
+from quotation_analyzer.utils.helpers import generate_id
+from quotation_analyzer.config import DEFAULT_SCENARIOS
 
 
 class ScenarioManager:
@@ -64,7 +64,7 @@ class ScenarioManager:
             file_id=src.file_id,
         )
         # 항목 복사
-        from models.data_models import QuotationItem
+        from quotation_analyzer.models.data_models import QuotationItem
         new_items = []
         for item in src.items:
             new_item = QuotationItem(
@@ -137,7 +137,7 @@ class ScenarioManager:
         if not src or not tgt:
             return 0
 
-        from models.data_models import QuotationItem
+        from quotation_analyzer.models.data_models import QuotationItem
         count = 0
         for item in src.items:
             new_item = QuotationItem(

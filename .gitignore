@@ -5,3 +5,9 @@ export/
 *.zip
 .DS_Store
 Thumbs.db
+
+# Package build
+quotation_analyzer/__pycache__/
+*.egg-info/
+dist/
+build/

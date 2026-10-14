@@ -53,13 +53,16 @@ class QuotationItem:
     # 부가세 여부
     is_tax: bool = False
     is_total_row: bool = False
+    # 합산 행 여부 (다른 행들의 합으로 계산된 값 — 원가분석에서 제외)
+    is_sum_row: bool = False
+    sum_formula: str = ""             # 합산 수식 (예: "I10+I20", "SUM(I19:I65)")
     # 비교안
     scenario: str = "견적가"
 
     @property
     def display_amount(self) -> float:
-        """표시용 금액 (부가세/합계 행 제외)"""
-        if self.is_tax or self.is_total_row:
+        """표시용 금액 (부가세/합계/합산 행 제외)"""
+        if self.is_tax or self.is_total_row or self.is_sum_row:
             return 0.0
         return self.amount
 

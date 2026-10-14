@@ -6,9 +6,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models.data_models import QuotationItem
-from analysis.aggregator import Aggregator
-from analysis.validator import Validator
+from quotation_analyzer.models.data_models import QuotationItem
+from quotation_analyzer.analysis.aggregator import Aggregator
+from quotation_analyzer.analysis.validator import Validator
 
 
 def _item(name, amount, category):

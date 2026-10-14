@@ -2,13 +2,13 @@
 analysis/aggregator.py - 비용 집계 및 계산 로직
 """
 from typing import Optional
-from models.data_models import QuotationItem, Scenario
-from config import (
+from quotation_analyzer.models.data_models import QuotationItem, Scenario
+from quotation_analyzer.config import (
     COST_CATEGORIES,
     COST_GROUPS,
     DEFAULT_STACK_ORDER,
 )
-from utils.helpers import safe_divide
+from quotation_analyzer.utils.helpers import safe_divide
 
 
 class Aggregator:

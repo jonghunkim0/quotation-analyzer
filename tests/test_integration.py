@@ -9,12 +9,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from parsers.excel_parser import ExcelParser
-from classification.auto_classifier import AutoClassifier
-from analysis.aggregator import Aggregator
-from analysis.validator import Validator
-from visualization.cost_chart import CostCompositionChart
-from config import SAMPLE_DIR
+from quotation_analyzer.parsers.excel_parser import ExcelParser
+from quotation_analyzer.classification.auto_classifier import AutoClassifier
+from quotation_analyzer.analysis.aggregator import Aggregator
+from quotation_analyzer.analysis.validator import Validator
+from quotation_analyzer.visualization.cost_chart import CostCompositionChart
+from quotation_analyzer.config import SAMPLE_DIR
 
 
 def main():
@@ -75,9 +75,11 @@ def main():
     n_traces = len(fig.data)
     print(f"  차트 trace 수: {n_traces}")
 
-    # 차트 합계 = 집계표 합계 일치 검증
+    # 차트 합계 = 집계표 합계 일치 검증 (합산금액 제외 — 이중합산 방지)
     for s in scenarios:
-        cat_sum = sum(s.category_totals.values())
+        cat_sum = sum(
+            v for k, v in s.category_totals.items() if k != "합산금액"
+        )
         assert abs(cat_sum - s.total_amount) < 1, (
             f"[{s.name}] 차트 합계({cat_sum:,.0f}) ≠ 총액({s.total_amount:,.0f})"
         )

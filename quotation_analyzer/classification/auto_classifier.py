@@ -3,9 +3,9 @@ classification/auto_classifier.py - 자동 분류 로직
 """
 import re
 from typing import Optional
-from models.data_models import QuotationItem
-from utils.helpers import normalize_text
-from config import COST_CATEGORIES, COST_GROUPS
+from quotation_analyzer.models.data_models import QuotationItem
+from quotation_analyzer.utils.helpers import normalize_text
+from quotation_analyzer.config import COST_CATEGORIES, COST_GROUPS
 
 # 인건비 그룹 카테고리 (인건비 섹션에서 매칭 대상)
 LABOR_GROUP_CATS = set(COST_GROUPS.get("인건비", []))
@@ -413,6 +413,8 @@ class AutoClassifier:
     def classify_all(self, items: list) -> list:
         """모든 항목을 일괄 분류"""
         for item in items:
+            if item.is_sum_row:
+                continue  # 합산 행은 이미 합산금액으로 분류됨
             category, confidence, keywords, reason = self.classify(item)
             item.auto_category = category
             item.confidence = confidence
@@ -442,8 +444,13 @@ class AutoClassifier:
         섹션(hint)이 같은 매칭은 보너스. 임계값 0.6, 신뢰도 70.
         ※ 섹션 힌트가 있는 항목은 전파 대상에서 제외 (섹션 기반 분류가 우선)"""
         count = 0
-        classified = [i for i in items if i.final_category and i.final_category != "미분류"]
+        classified = [
+            i for i in items
+            if i.final_category and i.final_category != "미분류" and not i.is_sum_row
+        ]
         for it in items:
+            if it.is_sum_row:
+                continue  # 합산 행은 전파 대상 아님
             if it.final_category != "미분류":
                 continue
             # 섹션 힌트가 있으면 유사 항목 전파 대신 섹션 기반 분류를 신뢰

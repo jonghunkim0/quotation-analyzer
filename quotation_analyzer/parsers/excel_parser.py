@@ -5,8 +5,8 @@ import math
 import re
 import pandas as pd
 from typing import Optional
-from models.data_models import QuotationItem, QuotationFile, FileStatus
-from utils.helpers import (
+from quotation_analyzer.models.data_models import QuotationItem, QuotationFile, FileStatus
+from quotation_analyzer.utils.helpers import (
     generate_id,
     parse_amount,
     match_column,
@@ -14,7 +14,7 @@ from utils.helpers import (
     is_blank_row,
     normalize_text,
 )
-from config import COLUMN_ALIASES, COST_CATEGORIES
+from quotation_analyzer.config import COLUMN_ALIASES, COST_CATEGORIES
 
 # ─── 모듈 레벨 상수/정규식 (매 호출마다 재생성 방지) ─────────────
 _REF_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Z]{1,3})(\d+)")
@@ -235,14 +235,47 @@ class ExcelParser:
             if is_blank_row(values):
                 continue
 
-            # 합산 수식 행 슂 (예: "=I18+I27", "=SUM(I5:I14)" — 다른 행 합산으로
-            # 산출된 값은 세부 항목과 금액이 중복되므로 견적 항목이 아님)
+            # 합산 수식 행 → 합산금액 항목으로 생성 (원가분석에는 포함 안 함)
             if row_idx in formula_rows:
+                _nm = self._get_cell(row, "품명")
+                _am = parse_amount(self._get_cell(row, "금액"))
+                _fm = formula_rows[row_idx]
+                items.append(QuotationItem(
+                    item_id=generate_id("item_"),
+                    source_file=filename,
+                    source_sheet=sheet_name,
+                    source_row=row_idx + 1,
+                    name=str(_nm).strip() if _nm else "",
+                    amount=_am,
+                    is_sum_row=True,
+                    sum_formula=_fm,
+                    auto_category="합산금액",
+                    final_category="합산금액",
+                    confidence=100.0,
+                    reason=f"합산 행: {_fm}",
+                    scenario=scenario,
+                ))
                 continue
-            # 색상 행 + 아래 행 합산 수치 검증 통과 → 요약 행 슂
-            # ※ 색상만으로는 제외하지 않음: 아래 연속 행들의 합과 금액이
-            #   실제로 일치할 때만 요약 행으로 판단 (중복 산출 방지)
+            # 색상 행 + 아래 행 합산 수치 검증 통과 → 합산금액 항목으로 생성
             if row_idx in summary_rows:
+                _nm = self._get_cell(row, "품명")
+                _am = parse_amount(self._get_cell(row, "금액"))
+                _fm = summary_rows[row_idx]
+                items.append(QuotationItem(
+                    item_id=generate_id("item_"),
+                    source_file=filename,
+                    source_sheet=sheet_name,
+                    source_row=row_idx + 1,
+                    name=str(_nm).strip() if _nm else "",
+                    amount=_am,
+                    is_sum_row=True,
+                    sum_formula=_fm,
+                    auto_category="합산금액",
+                    final_category="합산금액",
+                    confidence=100.0,
+                    reason=f"합산 행: {_fm}",
+                    scenario=scenario,
+                ))
                 continue
             # 섹션 마커 행 슂 (예: "[2] 전장/제어", "(1) Unit명" — 견적 항목이 아님)
             # 품명이 비어 있거나 섹션 이름만 있는 행은 데이터가 아님
@@ -351,7 +384,7 @@ class ExcelParser:
 
         qf.items = items
         qf.original_total = original_total
-        qf.extracted_total = sum(i.amount for i in items)
+        qf.extracted_total = sum(i.amount for i in items if not i.is_sum_row)
         qf.tax_amount = tax_amount
         qf.status = FileStatus.COMPLETED
         return qf
@@ -377,10 +410,11 @@ class ExcelParser:
             pass
         return df
 
-    def _detect_formula_rows(self, file_path: str, sheet_name: str) -> set:
-        """금액/단가 셀의 수식이 다른 행을 참조하는 행 인덱스(0-based) 반환.
-        - =I18+I27, =SUM(I5:I14) (다른 행 참조) → 합산 표기 행 → 제외
+    def _detect_formula_rows(self, file_path: str, sheet_name: str) -> dict:
+        """금액/단가 셀의 수식이 다른 행을 참조하는 행 인덱스(0-based) → 수식 문자열 반환.
+        - =I18+I27, =SUM(I5:I14) (다른 행 참조) → 합산 표기 행 → 합산금액
         - =H5*F5 (같은 행의 단가×수량) → 실제 견적 항목 → 유지
+        Returns: {row_idx_0based: "I18+I27" | "SUM(I5:I14)"}
         ※ read_only=False로 로드해야 수식 문자열을 정확히 읽을 수 있다
         (read_only=True는 캐시된 값만 읽어 수식 감지가 실패함)"""
         try:
@@ -392,7 +426,7 @@ class ExcelParser:
                 for c in ("금액", "단가")
                 if c in self.column_map
             }
-            rows = set()
+            rows = {}
             if check_cols:
                 for row in ws.iter_rows(min_col=1, max_col=max(check_cols)):
                     for cell in row:
@@ -403,12 +437,13 @@ class ExcelParser:
                         ):
                             refs = _REF_RE.findall(str(cell.value))
                             if any(int(r) != cell.row for _, r in refs):
-                                rows.add(cell.row - 1)
+                                formula = str(cell.value).lstrip("=")
+                                rows[cell.row - 1] = formula
                             break
             wb.close()
             return rows
         except Exception:
-            return set()
+            return {}
 
     def _detect_subtotal_sum_ranges(self, file_path: str, sheet_name: str) -> list:
         """소계/합계 행의 =SUM(Xa:Xb) 수식에서 합산 범위 추출.
@@ -528,8 +563,8 @@ class ExcelParser:
             return abs(qty * price - amt) <= 1.0
 
         # 검증 대상: 모든 데이터 행 (색상 무관)
-        # ※ 수식 합산 행은 parse_sheet에서 formula_rows로 먼저 제외됨
-        confirmed = set()
+        # ※ 수식 합산 행은 parse_sheet에서 formula_rows로 먼저 처리됨
+        confirmed = {}
         for row_idx in range(header_idx + 1, len(df)):
             # 정상 가격 항목(수량×단가=금액)은 실제 견적 항목 → 제외 대상 아님
             if _is_priced_item(row_idx):
@@ -541,6 +576,7 @@ class ExcelParser:
             running = 0.0
             count = 0
             found = False
+            first_sum_row = None
             for r in range(row_idx + 1, min(row_idx + 51, len(df))):
                 row_vals = df.iloc[r].tolist()
                 if is_blank_row(row_vals):
@@ -554,13 +590,15 @@ class ExcelParser:
                 amt = _row_amount(r)
                 if not amt:
                     continue
+                if first_sum_row is None:
+                    first_sum_row = r
                 running += amt
                 count += 1
                 if count >= 2 and abs(running - target) <= 1.0:
                     found = True
                     break
             if found:
-                confirmed.add(row_idx)
+                confirmed[row_idx] = f"SUM(행{first_sum_row + 1}:행{r + 1})"
         return confirmed
 
     def _compute_section_context(

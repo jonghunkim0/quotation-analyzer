@@ -15,7 +15,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-from config import (
+from quotation_analyzer.config import (
     COST_CATEGORIES,
     COST_GROUPS,
     DEFAULT_STACK_ORDER,
@@ -25,24 +25,24 @@ from config import (
     SUPPLY_OPTIONS,
     SUPPORTED_EXTENSIONS,
 )
-from models.data_models import (
+from quotation_analyzer.models.data_models import (
     QuotationItem,
     QuotationFile,
     Scenario,
     ReviewStatus,
     FileStatus,
 )
-from parsers.excel_parser import ExcelParser
-from parsers.pdf_parser import PDFParser
-from parsers.ocr_processor import OCRProcessor
-from classification.auto_classifier import AutoClassifier
-from classification.rule_store import RuleStore
-from analysis.aggregator import Aggregator
-from analysis.validator import Validator
-from analysis.scenario_manager import ScenarioManager
-from visualization.cost_chart import CostCompositionChart
-from export.exporter import Exporter
-from utils.helpers import format_amount, auto_detect_unit, generate_id
+from quotation_analyzer.parsers.excel_parser import ExcelParser
+from quotation_analyzer.parsers.pdf_parser import PDFParser
+from quotation_analyzer.parsers.ocr_processor import OCRProcessor
+from quotation_analyzer.classification.auto_classifier import AutoClassifier
+from quotation_analyzer.classification.rule_store import RuleStore
+from quotation_analyzer.analysis.aggregator import Aggregator
+from quotation_analyzer.analysis.validator import Validator
+from quotation_analyzer.analysis.scenario_manager import ScenarioManager
+from quotation_analyzer.visualization.cost_chart import CostCompositionChart
+from quotation_analyzer.export.exporter import Exporter
+from quotation_analyzer.utils.helpers import format_amount, auto_detect_unit, generate_id
 
 # ─── 페이지 설정 ─────────────────────────────────────────────
 st.set_page_config(
@@ -251,8 +251,8 @@ with st.sidebar:
     )
 
 # ─── 메인 헤더 ───────────────────────────────────────────────
-APP_VERSION = "1.3.6"
-APP_UPDATED = "2026. 10. 12."
+APP_VERSION = "1.3.8"
+APP_UPDATED = "2026. 10. 14."
 st.markdown(
     f'<div style="display:flex;align-items:baseline;gap:10px;">'
     f'<h1 style="margin:0;">📊 원가구성 비교 분석 도구</h1>'
@@ -763,6 +763,7 @@ if st.session_state.scenarios:
                     "자동분류": it.auto_category,
                     "신뢰도(%)": it.confidence,
                     "최종분류": it.final_category,
+                    "합산수식": it.sum_formula,
                     "분류근거": it.reason,
                 }
                 for it in all_items
@@ -774,7 +775,7 @@ if st.session_state.scenarios:
         # 모든 시트 처리
         for ws in wb.worksheets:
             # 헤더 행 탐지 (parser와 동일한 로직)
-            from parsers.excel_parser import ExcelParser
+            from quotation_analyzer.parsers.excel_parser import ExcelParser
             parser = ExcelParser()
             df_tmp = pd.read_excel(tmp_path, sheet_name=ws.title, header=None)
             header_idx = parser.detect_header_row(df_tmp)
@@ -787,7 +788,7 @@ if st.session_state.scenarios:
             new_col_start = max_col + 1
 
             # 헤더 행에 분류 열 이름 추가
-            new_headers = ["자동분류", "신뢰도(%)", "핵심키워드", "분류근거", "최종분류", "검토상태", "수정여부"]
+            new_headers = ["자동분류", "신뢰도(%)", "핵심키워드", "분류근거", "최종분류", "합산수식", "검토상태", "수정여부"]
             for i, h in enumerate(new_headers):
                 ws.cell(row=header_idx + 1, column=new_col_start + i, value=h)
 
@@ -802,8 +803,9 @@ if st.session_state.scenarios:
                     ws.cell(row=row_idx + 1, column=new_col_start + 2, value=", ".join(it.keywords))
                     ws.cell(row=row_idx + 1, column=new_col_start + 3, value=it.reason)
                     ws.cell(row=row_idx + 1, column=new_col_start + 4, value=it.final_category)
-                    ws.cell(row=row_idx + 1, column=new_col_start + 5, value=it.review_status.value)
-                    ws.cell(row=row_idx + 1, column=new_col_start + 6, value="Y" if it.is_modified else "N")
+                    ws.cell(row=row_idx + 1, column=new_col_start + 5, value=it.sum_formula)
+                    ws.cell(row=row_idx + 1, column=new_col_start + 6, value=it.review_status.value)
+                    ws.cell(row=row_idx + 1, column=new_col_start + 7, value="Y" if it.is_modified else "N")
 
         # BytesIO로 저장
         buf = io.BytesIO()

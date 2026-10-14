@@ -6,8 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models.data_models import QuotationItem
-from classification.auto_classifier import AutoClassifier
+from quotation_analyzer.models.data_models import QuotationItem
+from quotation_analyzer.classification.auto_classifier import AutoClassifier
 
 
 def _item(name, spec="", remark="", hint=""):

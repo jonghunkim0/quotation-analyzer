@@ -4,14 +4,14 @@ parsers/pdf_parser.py - PDF 견적서 파서 (텍스트형 + 스캔형 감지)
 import re
 from typing import Optional
 import fitz  # PyMuPDF
-from models.data_models import QuotationItem, QuotationFile, FileStatus
-from utils.helpers import (
+from quotation_analyzer.models.data_models import QuotationItem, QuotationFile, FileStatus
+from quotation_analyzer.utils.helpers import (
     generate_id,
     parse_amount,
     is_total_row,
     normalize_text,
 )
-from config import COLUMN_ALIASES
+from quotation_analyzer.config import COLUMN_ALIASES
 
 
 class PDFParser:
