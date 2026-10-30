@@ -376,6 +376,10 @@ class ExcelParser:
                     continue
             # 각 필드 추출
             name = self._get_cell(row, "품명")
+            # Remark/참고 섹션 행 스킵 (병합 셀로 단가/금액 열에 텍스트 전파 → parse_amount 오추출 방지)
+            _name_chk = normalize_text(str(name)) if name else ""
+            if _name_chk.startswith("[remark]") or _name_chk == "remark" or _name_chk.startswith("remark"):
+                continue
             spec = self._get_cell(row, "사양")
             qty_raw = self._get_cell(row, "수량")
             price_raw = self._get_cell(row, "단가")
@@ -536,9 +540,13 @@ class ExcelParser:
                         if cell.data_type == "f" or (
                             isinstance(cell.value, str) and cell.value.startswith("=")
                         ):
-                            refs = _REF_RE.findall(str(cell.value))
+                            _fv = str(cell.value)
+                            # cross-sheet 참조('시트명'!K105)는 합산 행이 아님
+                            if "!" in _fv:
+                                break
+                            refs = _REF_RE.findall(_fv)
                             if any(int(r) != cell.row for _, r in refs):
-                                formula = str(cell.value).lstrip("=")
+                                formula = _fv.lstrip("=")
                                 rows[cell.row - 1] = formula
                             break
             wb.close()

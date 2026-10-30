@@ -704,6 +704,32 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
     }
   }
 
+  // 합산 수식 행 재계산: 단가/금액 열만 검사 + cross-sheet(!) 참조 제외
+  // (index.html에서 모든 열을 검사해 cross-sheet 참조/공수열 SUM을 오감지하는 것 방지 — M9/M32)
+  if (ws && ws["!ref"]) {
+    const fr = XLSX.utils.decode_range(ws["!ref"]);
+    const checkCols = new Set();
+    if (colMap["단가"] !== undefined) checkCols.add(colMap["단가"]);
+    if (colMap["금액"] !== undefined) checkCols.add(colMap["금액"]);
+    const refRe = /(?<![A-Za-z0-9_])([A-Z]{1,3})(\d+)/g;
+    const recomputed = new Set();
+    for (let rr = fr.s.r; rr <= fr.e.r; rr++) {
+      for (const cc of checkCols) {
+        const cell = ws[XLSX.utils.encode_cell({ r: rr, c: cc })];
+        if (!cell || !cell.f) continue;
+        const f = String(cell.f);
+        if (f.includes("!")) continue; // cross-sheet 참조 → 합산 행 아님
+        refRe.lastIndex = 0;
+        let m, crossRow = false;
+        while ((m = refRe.exec(f)) !== null) {
+          if (parseInt(m[2], 10) !== rr + 1) { crossRow = true; break; }
+        }
+        if (crossRow) { recomputed.add(rr); break; }
+      }
+    }
+    sumRows = recomputed;
+  }
+
   // 무헤더 섹션 열(B열 등) 감지: 헤더가 없으면서 비용 성격 라벨(인건비/자재비/경비)을 가진 열
   const mappedCols = new Set(Object.values(colMap));
   const sectionCols = [];
@@ -942,6 +968,11 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
 
     const noVal = getNo(row);
     const name = getCell(row, "품명");
+    // Remark/참고 섹션 행 스킵 (병합 셀로 단가/금액 열에 텍스트 전파 → parseAmount 오추출 방지 — M39)
+    {
+      const _nm = name ? normalizeText(String(name)) : "";
+      if (_nm.startsWith("[remark]") || _nm === "remark" || _nm.startsWith("remark")) continue;
+    }
     const spec = getCell(row, "사양");
     const qtyRaw = getCell(row, "수량");
     const priceRaw = getCell(row, "단가");
