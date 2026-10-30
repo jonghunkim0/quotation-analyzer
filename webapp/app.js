@@ -143,7 +143,7 @@ const CLASSIFICATION_RULES = {
   "경비-숙박/교통/항공": ["운송비", "출장비", "숙박비", "교통비", "안전관리비",
              "일반관리비", "보험료", "설치 경비", "현장 경비", "배송비",
              "운반비", "관리비", "이동", "국내이동", "항공",
-             "출입국", "교훈", "교육", "체류비"],
+             "출입국", "교훈", "교육", "체류비", "교통", "숙박"],
   "마진": ["마진", "이윤", "profit", "margin", "영업이익", "이익률", "이익", "수익"],
 };
 
@@ -755,6 +755,7 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
     const isSectionMarker = (text) => {
       const h = String(text).replace(/\s+/g, "");
       if (!h) return false;
+      if (h.toLowerCase().startsWith("[remark]") || h.toLowerCase() === "remark") return true;
       if (PAREN_PREFIX_RE.test(h)) {
         // 괄호형 섹션 마커: "(2) 전장", "(1)기구설계" 등 — 내부 텍스트가 섹션 키워드면 마커
         // ("(1) Unit명" 같은 Unit 소계는 키워드 없음 → 마커 아님)
@@ -794,6 +795,7 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
           const ns = String(nv).trim();
           if (ns && !["-", "--", "—"].includes(ns)) {
             const nsClean = ns.replace(/\s+/g, "");
+            if (nsClean.toLowerCase().startsWith("[remark]") || nsClean.toLowerCase() === "remark") return ns;
             if (SECTION_NAMES.some(sec => nsClean.includes(sec))) return ns;
             return "";
           }
@@ -939,6 +941,13 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
       }
     }
 
+    // Remark 섹션 행 스킵 (참고사항 — 견적 항목이 아님)
+    const secHintForRemark = sectionHintMap[r] || "";
+    if (secHintForRemark.toLowerCase().includes("remark")) {
+      const amtChk2 = parseAmount(amountRaw);
+      if (Math.abs(amtChk2) < 1) continue;
+    }
+
     // 섹션 컨텍스트: 구분 셀 + 섹션 컨텍스트 조합 (Python과 동일)
     // (셀에 줄바꿈이 섞여 있을 수 있음 → 공백 전부 제거)
     const secHint = sectionHintMap[r] || "";
@@ -982,7 +991,8 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
     // Unit 소계 행(예: "(1) Unit명 : BASE_FRAME"): 금액이 아래 상세에 이미 포함되어 있어 스킵
     if (isUnitSubtotal[r]) continue;
     // 품명도 No도 없는 행(장비 대수, 하단 메모 등 메타데이터 행)
-    if (!name && !noVal) continue;
+    // 단, 금액이 있는 행은 데이터 행으로 유지 (예: "자재리스트 참조" — 품명 없음, 금액 있음)
+    if (!name && !noVal && amount === 0) continue;
 
     // 품명이 비어 있으면 No 열에서 이름 추출: "(1)기구설계" → "기구설계"
     let itemName = name ? String(name).trim() : "";

@@ -49,6 +49,8 @@ def _is_section_marker(text: str) -> bool:
     h = text.replace(" ", "").replace("\n", "")
     if not h:
         return False
+    if h.lower().startswith("[remark]") or h.lower() == "remark":
+        return True
     if _PAREN_PREFIX_RE.match(h):
         return False
     if _BRACKET_RE.match(h):
@@ -322,6 +324,12 @@ class ExcelParser:
                     or _is_section_level_hint(name_check_h)
                     or name_check_h.lower().startswith("unit명")
                 ):
+                    continue
+            # Remark 섹션 행 스킵 (참고사항 — 견적 항목이 아님)
+            _sec_hint = section_hint_map.get(row_idx, "")
+            if "remark" in _sec_hint.lower():
+                _amt_chk2 = parse_amount(self._get_cell(row, "금액"))
+                if abs(_amt_chk2) < 1:
                     continue
             # 각 필드 추출
             name = self._get_cell(row, "품명")
@@ -672,6 +680,9 @@ class ExcelParser:
                     ns = str(nv).strip()
                     if ns and ns not in ("-", "--", "—"):
                         ns_clean = ns.replace(" ", "")
+                        # Remark 섹션 감지
+                        if ns_clean.lower().startswith("[remark]") or ns_clean.lower() == "remark":
+                            return ns
                         # 섹션 헤더: "가공품 소개", "구매품 소개" 등
                         if any(sec in ns_clean for sec in _SECTION_NAMES):
                             return ns
