@@ -663,6 +663,47 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
     }
   }
 
+  // 품명 열이 비용 성격 열("내역" 등)이면 실제 품명 열로 재매핑
+  // (B열 "내역"에 인건비/자재비/경비가 들어있고, 실제 품명은 C열에 있는 경우)
+  {
+    const nameCol = colMap["품명"];
+    if (nameCol !== undefined) {
+      const vals = [];
+      for (let r = headerIdx + 1; r < rows.length; r++) {
+        const v = (rows[r] || [])[nameCol];
+        if (v !== null && v !== undefined) {
+          const h = normalizeText(String(v));
+          if (h) vals.push(h);
+        }
+      }
+      if (vals.length >= 3) {
+        const labelHits = vals.filter(v => SECTION_COL_LABELS.has(v)).length;
+        if (labelHits >= 3) {
+          // 품명 열이 비용 성격 열 → 다음 후보 열(실제 품명)로 재매핑
+          delete colMap["품명"];
+          const mapped = new Set(Object.values(colMap));
+          for (let c = 0; c < headerRow.length; c++) {
+            if (mapped.has(c) || c === nameCol) continue;
+            const colVals = [];
+            for (let r = headerIdx + 1; r < rows.length; r++) {
+              const v = (rows[r] || [])[c];
+              if (v !== null && v !== undefined) {
+                const h = normalizeText(String(v));
+                if (h) colVals.push(h);
+              }
+            }
+            if (!colVals.length) continue;
+            const colLabelHits = colVals.filter(v => SECTION_COL_LABELS.has(v)).length;
+            if (colLabelHits < colVals.length * 0.5) {
+              colMap["품명"] = c;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
   // 무헤더 섹션 열(B열 등) 감지: 헤더가 없으면서 비용 성격 라벨(인건비/자재비/경비)을 가진 열
   const mappedCols = new Set(Object.values(colMap));
   const sectionCols = [];

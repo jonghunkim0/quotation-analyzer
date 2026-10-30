@@ -147,6 +147,46 @@ class ExcelParser:
                         break
         return self.column_map
 
+    def _fixup_name_column(self, df: pd.DataFrame, header_idx: int) -> None:
+        """품명 열의 값이 비용 성격 라벨(인건비/자재비/경비 등)을 다수 포함하면,
+        그 열은 실제 품명 열이 아님 (비용 성격 열, 예: "내역" 헤더 열에 인건비/자재비/경비).
+        품명을 다음 후보 열(실제 품명 열)로 재매핑.
+        비용 성격 열은 _detect_section_columns에서 section col로 자동 감지됨."""
+        name_col = self.column_map.get("품명")
+        if name_col is None:
+            return
+        vals = []
+        for r in range(header_idx + 1, len(df)):
+            v = df.iat[r, name_col]
+            if pd.notna(v):
+                h = normalize_text(str(v))
+                if h:
+                    vals.append(h)
+        if len(vals) < 3:
+            return
+        label_hits = sum(1 for v in vals if v in _SECTION_COL_LABELS)
+        if label_hits < 3:
+            return
+        # 품명 열이 비용 성격 열 → 다음 후보 열(실제 품명)로 재매핑
+        del self.column_map["품명"]
+        mapped = set(self.column_map.values())
+        for c in range(len(df.columns)):
+            if c in mapped or c == name_col:
+                continue
+            col_vals = []
+            for r in range(header_idx + 1, len(df)):
+                v = df.iat[r, c]
+                if pd.notna(v):
+                    h = normalize_text(str(v))
+                    if h:
+                        col_vals.append(h)
+            if not col_vals:
+                continue
+            col_label_hits = sum(1 for v in col_vals if v in _SECTION_COL_LABELS)
+            if col_label_hits < len(col_vals) * 0.5:
+                self.column_map["품명"] = c
+                break
+
     def _detect_section_columns(self, df: pd.DataFrame, header_idx: int) -> list:
         """헤더가 없으면서 비용 성격 섹션 라벨(인건비/자재비/경비 등)을 가진 열 인덱스 반환.
         이미 canonical 열로 매핑된 열은 제외. (B열 같은 무헤더 구분 열 감지)"""
@@ -213,6 +253,9 @@ class ExcelParser:
                 if pd.notna(value) and str(value).strip():
                     self.column_map["품명"] = idx
                     break
+
+        # 품명 열이 비용 성격 열("내역" 등)이면 실제 품명 열로 재매핑
+        self._fixup_name_column(df, header_idx)
 
         # 구분 열 폴백: 헤더에 "구분"이 없으면, 첫 열에 섹션 힌트(구매품/가공품 등)가 있으면 그 열을 구분으로 사용
         if "구분" not in self.column_map:
