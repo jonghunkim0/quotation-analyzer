@@ -251,8 +251,8 @@ with st.sidebar:
     )
 
 # ─── 메인 헤더 ───────────────────────────────────────────────
-APP_VERSION = "1.3.8"
-APP_UPDATED = "2026. 10. 14."
+APP_VERSION = "1.3.14"
+APP_UPDATED = "2026. 10. 30."
 st.markdown(
     f'<div style="display:flex;align-items:baseline;gap:10px;">'
     f'<h1 style="margin:0;">📊 원가구성 비교 분석 도구</h1>'

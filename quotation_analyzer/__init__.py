@@ -5,7 +5,7 @@ pip install:
   pip install git+https://github.com/yourname/quotation-analyzer.git
 """
 
-__version__ = "1.3.6"
+__version__ = "1.3.14"
 
 from quotation_analyzer.config import COST_CATEGORIES, COST_GROUPS
 from quotation_analyzer.models.data_models import (
