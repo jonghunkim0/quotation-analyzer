@@ -386,7 +386,10 @@ class AutoClassifier:
             )
 
         # 3-2) 섹션 기반 폴백: "전장/제어" 섹션 내 항목 → 전장 가공품
-        if best_category == "미분류" and is_elec_section:
+        #      단, 비용 성격(인건비/경비/재료비)이 이미 판별된 경우(3-3/3-4/3-5)에는
+        #      해당 성격 폴백으로 위임 (전장/제어 섹션 내 인건비/경비 항목이
+        #      "전장 가공품"으로 오분류되는 것 방지 — M17)
+        if best_category == "미분류" and is_elec_section and section_type is None:
             return (
                 "전장 가공품",
                 50.0,

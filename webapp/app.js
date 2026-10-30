@@ -467,7 +467,9 @@ function classifyItem(item, userRules) {
   }
 
   // 3-2) 섹션 기반 폴백: "전장/제어" 섹션 내 항목 → 전장 가공품
-  if (bestCategory === "미분류" && isElecSection) {
+  //      단, 비용 성격(인건비/경비/재료비)이 이미 판별된 경우(3-3/3-4/3-5)에는
+  //      해당 성격 폴백으로 위임 (M17: 전장/인건비 항목이 "전장 가공품"으로 오분류 방지)
+  if (bestCategory === "미분류" && isElecSection && !sectionType) {
     return { category: "전장 가공품", confidence: 50, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}'(전장/제어) 기준 분류` };
   }
 
