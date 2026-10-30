@@ -28,6 +28,11 @@ _SUM_RANGE_RE = re.compile(r"=SUM\(([A-Z]{1,3})(\d+):([A-Z]{1,3})(\d+)\)", re.IG
 
 _SECTION_KW = ["전장", "제어", "전기", "electrical", "control"]
 _SECTION_NAMES = ("구매품", "가공품", "기구", "재료비", "인건비", "경비")
+# 비용 성격 섹션 라벨 — 헤더 없는 구분 열(B열 등) 감지용
+_SECTION_COL_LABELS = {
+    "인건비", "자재비", "재료비", "경비", "자체비", "기구", "전장", "제어",
+    "전기", "구매품", "가공품", "사급품", "마진",
+}
 _SUBTOTAL_CATS = {
     "기구 구매품", "전장 구매품", "제어 구매품",
     "기구 가공품", "전장 가공품",
@@ -91,6 +96,7 @@ class ExcelParser:
 
     def __init__(self):
         self.column_map = {}  # {canonical_name: col_index}
+        self.section_cols = []  # 무헤더 섹션 열 인덱스 (B열 등)
 
     def list_sheets(self, file_path: str) -> list:
         """Excel 파일의 시트 목록 반환"""
@@ -138,6 +144,26 @@ class ExcelParser:
                         self.column_map[canonical] = idx
                         break
         return self.column_map
+
+    def _detect_section_columns(self, df: pd.DataFrame, header_idx: int) -> list:
+        """헤더가 없으면서 비용 성격 섹션 라벨(인건비/자재비/경비 등)을 가진 열 인덱스 반환.
+        이미 canonical 열로 매핑된 열은 제외. (B열 같은 무헤더 구분 열 감지)"""
+        mapped = set(self.column_map.values())
+        cols = []
+        n_cols = len(df.columns)
+        for c in range(n_cols):
+            if c in mapped:
+                continue
+            hits = 0
+            for r in range(header_idx + 1, len(df)):
+                v = df.iat[r, c]
+                if pd.notna(v):
+                    h = normalize_text(str(v))
+                    if h in _SECTION_COL_LABELS:
+                        hits += 1
+            if hits >= 1:
+                cols.append(c)
+        return cols
 
     def parse_sheet(
         self,
@@ -192,6 +218,9 @@ class ExcelParser:
             sample = df.iloc[header_idx + 1: header_idx + 20, first_col]
             if sample.apply(lambda v: _is_section_level_hint(str(v)) if pd.notna(v) else False).any():
                 self.column_map["구분"] = first_col
+
+        # 무헤더 섹션 열(B열 등) 감지: 헤더가 없으면서 비용 성격 라벨(인건비/자재비/경비)을 가진 열
+        self.section_cols = self._detect_section_columns(df, header_idx)
 
         # 수식(합산) 행 감지 (열 매핑 이후 — 금액/단가 열 인덱스 필요)
         # 다른 행들의 합산으로 산출된 값(=SUM(I5:I14), =I15+I17)은
@@ -284,7 +313,11 @@ class ExcelParser:
                 name_check = self._get_cell(row, "품명")
                 name_check_h = str(name_check).replace(" ", "").replace("\n", "") if name_check else ""
                 is_total_name = name_check_h and is_total_row(name_check_h)
-                if not is_total_name and (
+                # 섹션 라벨과 실제 데이터(금액/단가)가 같은 행이면 데이터 행으로 유지
+                _amt_chk = parse_amount(self._get_cell(row, "금액"))
+                _prc_chk = parse_amount(self._get_cell(row, "단가"))
+                has_real_value = (abs(_amt_chk) >= 1) or (abs(_prc_chk) >= 1)
+                if not is_total_name and not has_real_value and (
                     not name_check_h
                     or _is_section_level_hint(name_check_h)
                     or name_check_h.lower().startswith("unit명")
@@ -298,6 +331,23 @@ class ExcelParser:
             amount_raw = self._get_cell(row, "금액")
             remark = self._get_cell(row, "비고")
             category_hint = self._get_cell(row, "구분")
+
+            # 무헤더 섹션 열(B열 등) 값 조합 → "인건비 > 경비"
+            _sub_parts = []
+            for _c in self.section_cols:
+                _v = row.iloc[_c] if _c < len(row) else None
+                if pd.notna(_v) and str(_v).strip() and str(_v).strip() not in ("-", "--", "—"):
+                    _sub_parts.append(str(_v).strip())
+            _sub_str = " ".join(_sub_parts)
+            if _sub_str:
+                if category_hint:
+                    _top = str(category_hint).strip()
+                    if normalize_text(_top) != normalize_text(_sub_str):
+                        category_hint = f"{_top} > {_sub_str}"
+                    else:
+                        category_hint = _sub_str
+                else:
+                    category_hint = _sub_str
 
             # 품명이 "-" 또는 비어 있으면 "(n)이름" 패턴에서 추출
             name_str = str(name).strip() if name else ""

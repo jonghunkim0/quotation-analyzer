@@ -76,7 +76,7 @@ const AMOUNT_UNITS = { "원": 1, "천원": 1000, "백만원": 1000000, "억원":
 const COLUMN_ALIASES = {
   "품명": ["품명", "품목", "품목명", "항목", "item", "description", "내역", "part name", "part", "명세", "item name", "item description"],
   "사양": ["사양", "규격", "spec", "specification", "상세내용", "model", "모델", "재질", "material", "size", "크기", "치수", "dimension"],
-  "수량": ["수량", "qty", "quantity", "개수", "count"],
+  "수량": ["수량", "qty", "quantity", "개수", "count", "공수"],
   "단가": ["단가", "unit price", "unit", "단가(원)", "unit cost", "unit price(원)"],
   "금액": ["금액", "amount", "price", "공급가액", "total", "합계", "금액(원)", "total amount", "amount(원)", "합계금액"],
   "비고": ["비고", "remark", "note", "remarks", "메모", "comment", "memo", "설명"],
@@ -139,15 +139,45 @@ const CLASSIFICATION_RULES = {
   "인건비-특수제어": ["pmac", "umac", "모션", "특수 제어", "특수제어",
              "제어 인건", "인건비-특수제어", "제어"],
   "경비-포장": ["포장", "포장비", "패키징", "packaging"],
-  "경비-기타": ["기타", "기타항목", "기타 비용"],
+  "경비-기타": ["기타", "기타항목", "기타 비용", "물류", "물류비", "물류 비용"],
   "경비-숙박/교통/항공": ["운송비", "출장비", "숙박비", "교통비", "안전관리비",
              "일반관리비", "보험료", "설치 경비", "현장 경비", "배송비",
-             "운반비", "관리비", "경비", "이동", "국내이동", "항공"],
+             "운반비", "관리비", "이동", "국내이동", "항공",
+             "출입국", "교훈", "교육", "체류비"],
   "마진": ["마진", "이윤", "profit", "margin", "영업이익", "이익률", "이익", "수익"],
 };
 
 // 인건비 그룹 카테고리 (인건비 섹션에서 매칭 대상)
 const LABOR_GROUP_CATS = new Set(COST_GROUPS["인건비"]);
+
+// 카테고리 → 비용 그룹 매핑 (비용 성격 섹션 게이트용)
+const CAT_GROUP = {};
+for (const [g, cats] of Object.entries(COST_GROUPS)) {
+  for (const c of cats) CAT_GROUP[c] = g;
+}
+
+// 비용 성격(인건비/경비/재료비) 판별
+function costTypeOf(hint) {
+  if (!hint) return null;
+  if (hint.includes("경비")) return "경비";
+  if (hint.includes("인건")) return "인건비";
+  if (["자재", "재료", "자체비", "구매품", "가공품", "사급품"].some(k => hint.includes(k))) return "재료비";
+  return null;
+}
+
+// 계열(기구/전장·제어) 판별
+function familyTypeOf(hint) {
+  if (!hint) return null;
+  if (hint.includes("기구") || hint.includes("기계")) return "기구";
+  if (hint.includes("전장") || hint.includes("제어") || hint.includes("전기")) return "전장/제어";
+  return null;
+}
+
+// 비용 성격 섹션 라벨 — 헤더 없는 구분 열(B열 등) 감지용
+const SECTION_COL_LABELS = new Set([
+  "인건비", "자재비", "재료비", "경비", "자체비", "기구", "전장", "제어",
+  "전기", "구매품", "가공품", "사급품", "마진",
+]);
 
 // 우선순위: 사급품이 명시되면 최우선
 const PRIORITY_CATEGORIES = ["사급품"];
@@ -323,7 +353,20 @@ function classifyItem(item, userRules) {
 
   const normHint = normalizeText(item.category_hint);
   const isElecSection = normHint ? ELEC_SECTION_KWS.some(kw => matchKw(kw, normHint)) : false;
-  const isLaborSection = normHint ? normHint.includes("인건") : false;
+
+  // 비용 성격(인건비/경비/재료비) 섹션 감지
+  // 하위 섹션("인건비 > 경비"의 "경비")이 있으면 하위 우선, 없으면 상위 기준
+  let subHint = normHint, topHint = normHint;
+  if (normHint && normHint.includes(">")) {
+    const parts = normHint.split(">").map(p => p.trim()).filter(Boolean);
+    subHint = parts.length ? parts[parts.length - 1] : "";
+    topHint = parts.length ? parts[0] : "";
+  }
+  const sectionType = costTypeOf(subHint) || costTypeOf(topHint);
+  // 계열(기구/전장·제어) 감지: A열(상위) 우선, 없으면 B열(하위) 기준
+  const sectionFamily = familyTypeOf(topHint) || familyTypeOf(subHint);
+  // 인건비 섹션 감지 (하위 섹션이 인건비 계열일 때만)
+  const isLaborSection = (sectionType === "인건비");
 
   // 1-1b) 품명 계열 고정: 품명에 "기구"/"전장"/"제어"가 명시되면 계열 고정
   const normNameForFamily = normalizeText(item.name || "");
@@ -384,8 +427,6 @@ function classifyItem(item, userRules) {
   let bestCategory = "미분류", bestScore = 0, bestKeywords = [], bestReason = "";
   for (const category of COST_CATEGORIES) {
     if (category === "미분류") continue;
-    // 인건비 섹션: 인건비 그룹 외 카테고리 건너뜀
-    if (isLaborSection && !LABOR_GROUP_CATS.has(category)) continue;
     // 전장/제어 섹션 내에서는 기구 구매품 점수 대폭 감점
     if (category === "기구 구매품" && isElecSection) continue;
     // 품명 계열 고정: 품명에 "기구" 있으면 전장/제어 계열 카테고리 건너뜀
@@ -399,6 +440,10 @@ function classifyItem(item, userRules) {
       const normName = normalizeText(item.name);
       if (matched.some(kw => matchKw(kw, normName))) score += 15;
       if (matched.some(kw => matchKw(kw, normHint))) score += 10;
+      // 비용 성격 강제 게이트: B열(성격)이 있으면 해당 성격 그룹만 매칭
+      if (sectionType && CAT_GROUP[category] !== sectionType && CAT_GROUP[category] !== "기타") {
+        continue;
+      }
       if (score > bestScore) {
         bestScore = score;
         bestCategory = category;
@@ -426,9 +471,25 @@ function classifyItem(item, userRules) {
     return { category: "전장 가공품", confidence: 50, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}'(전장/제어) 기준 분류` };
   }
 
-  // 3-3) 섹션 기반 폴백: "인건비" 섹션 내 항목 → 인건비-전장/제어 조립
-  if (bestCategory === "미분류" && normHint.includes("인건")) {
+  // 3-3) 섹션 기반 폴백: "인건비" 섹션 내 항목 → 계열(기구/전장·제어) 기준 조립
+  if (bestCategory === "미분류" && sectionType === "인건비") {
+    if (sectionFamily === "기구") {
+      return { category: "인건비-기구 조립", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}'(인건비·기구) 기준 분류` };
+    }
     return { category: "인건비-전장/제어 조립", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}'(인건비) 기준 분류` };
+  }
+
+  // 3-4) 섹션 기반 폴백: "자재비/자체비" 섹션 내 항목 → 계열(기구/전장·제어) 기준 가공품
+  if (bestCategory === "미분류" && sectionType === "재료비") {
+    if (sectionFamily === "전장/제어") {
+      return { category: "전장 가공품", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}'(자재비·전장/제어) 기준 분류` };
+    }
+    return { category: "기구 가공품", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}'(자재비) 기준 분류` };
+  }
+
+  // 3-5) 섹션 기반 폴백: "경비" 섹션 내 항목 → 경비-기타
+  if (bestCategory === "미분류" && sectionType === "경비") {
+    return { category: "경비-기타", confidence: 45, keywords: [], reason: `키워드 매칭 실패 → 섹션 '${item.category_hint}'(경비) 기준 분류` };
   }
 
   // 4) 신뢰도 계산
@@ -598,6 +659,20 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
       const v = headerRow[idx];
       if (v !== null && v !== undefined && String(v).trim() !== "") { colMap["품명"] = idx; break; }
     }
+  }
+
+  // 무헤더 섹션 열(B열 등) 감지: 헤더가 없으면서 비용 성격 라벨(인건비/자재비/경비)을 가진 열
+  const mappedCols = new Set(Object.values(colMap));
+  const sectionCols = [];
+  const nCols = headerRow.length;
+  for (let c = 0; c < nCols; c++) {
+    if (mappedCols.has(c)) continue;
+    let hits = 0;
+    for (let r = headerIdx + 1; r < rows.length; r++) {
+      const v = (rows[r] || [])[c];
+      if (v !== null && v !== undefined && SECTION_COL_LABELS.has(normalizeText(String(v)))) hits++;
+    }
+    if (hits >= 1) sectionCols.push(c);
   }
 
   const getCell = (row, canonical) => {
@@ -830,13 +905,35 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
     const catHintCell = getCell(row, "구분");
     const vendor = getCell(row, "업체명");
 
+    // 무헤더 섹션 열(B열 등) 값 조합 → "인건비 > 경비"
+    const subParts = [];
+    for (const c of sectionCols) {
+      const v = row[c];
+      if (v !== null && v !== undefined && String(v).trim() && !["-", "--", "—"].includes(String(v).trim())) {
+        subParts.push(String(v).trim());
+      }
+    }
+    const subStr = subParts.join(" ");
+    let catHintBase = catHintCell ? String(catHintCell).trim() : "";
+    if (subStr) {
+      if (catHintBase && normalizeText(catHintBase) !== normalizeText(subStr)) {
+        catHintBase = catHintBase + " > " + subStr;
+      } else {
+        catHintBase = subStr;
+      }
+    }
+
     // 섹션 마커 행 슂 (예: "[2] 전장/제어", "(1) Unit명" — 견적 항목이 아님)
     // 품명이 비어 있거나 섹션 이름만 있는 행은 데이터가 아님 (합계/소계 행 제외)
+    // 단, 섹션 라벨과 실제 데이터(금액/단가)가 같은 행이면 데이터 행으로 유지
     if (r in sectionHintMap) {
       const nameCheck = name ? String(name).trim() : "";
       const nameCheckH = nameCheck.replace(/\s+/g, "");
       const isTotalName = nameCheckH && isTotalRow(nameCheckH);
-      if (!isTotalName && (!nameCheckH || nameCheckH.toLowerCase().startsWith("unit명") ||
+      const amtChk = parseAmount(amountRaw);
+      const prcChk = parseAmount(priceRaw);
+      const hasRealValue = Math.abs(amtChk) >= 1 || Math.abs(prcChk) >= 1;
+      if (!isTotalName && !hasRealValue && (!nameCheckH || nameCheckH.toLowerCase().startsWith("unit명") ||
           ["구매품","가공품","기구","재료비","인건비","경비"].includes(nameCheckH))) {
         continue;
       }
@@ -846,8 +943,8 @@ function parseExcelSheet(rows, filename, sheetName, scenario, sumRows, ws) {
     // (셀에 줄바꿈이 섞여 있을 수 있음 → 공백 전부 제거)
     const secHint = sectionHintMap[r] || "";
     let catHint;
-    if (catHintCell) {
-      const cellHint = String(catHintCell).replace(/\s+/g, "");
+    if (catHintBase) {
+      const cellHint = catHintBase.replace(/\s+/g, "");
       catHint = (secHint && cellHint !== secHint) ? secHint + " " + cellHint : cellHint;
     } else {
       catHint = secHint;

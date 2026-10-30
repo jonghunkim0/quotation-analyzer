@@ -130,7 +130,7 @@ DEFAULT_SCENARIOS = ["견적가", "구매 목표가", "개발 검토가"]
 COLUMN_ALIASES = {
     "품명": ["품명", "품목", "항목", "item", "description", "내역", "part name", "part", "명세"],
     "사양": ["사양", "규격", "spec", "specification", "상세내용", "model", "모델"],
-    "수량": ["수량", "qty", "quantity", "개수", "count"],
+    "수량": ["수량", "qty", "quantity", "개수", "count", "공수"],
     "단가": ["단가", "unit price", "unit", "단가(원)", "unit price (won)"],
     "금액": ["금액", "amount", "price", "공급가액", "total", "합계", "금액(원)", "total (won)"],
     "비고": ["비고", "remark", "note", "remarks", "메모", "comment"],

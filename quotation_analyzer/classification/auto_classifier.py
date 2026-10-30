@@ -10,6 +10,36 @@ from quotation_analyzer.config import COST_CATEGORIES, COST_GROUPS
 # 인건비 그룹 카테고리 (인건비 섹션에서 매칭 대상)
 LABOR_GROUP_CATS = set(COST_GROUPS.get("인건비", []))
 
+# 카테고리 → 비용 그룹 매핑 (비용 성격 섹션 게이트용)
+_CAT_GROUP = {}
+for _g, _cats in COST_GROUPS.items():
+    for _c in _cats:
+        _CAT_GROUP[_c] = _g
+
+
+def _cost_type(hint: str):
+    """섹션 힌트에서 비용 성격(인건비/경비/재료비) 판별"""
+    if not hint:
+        return None
+    if "경비" in hint:
+        return "경비"
+    if "인건" in hint:
+        return "인건비"
+    if any(k in hint for k in ("자재", "재료", "자체비", "구매품", "가공품", "사급품")):
+        return "재료비"
+    return None
+
+
+def _family_type(hint: str):
+    """섹션 힌트에서 계열(기구/전장·제어) 판별"""
+    if not hint:
+        return None
+    if "기구" in hint or "기계" in hint:
+        return "기구"
+    if "전장" in hint or "제어" in hint or "전기" in hint:
+        return "전장/제어"
+    return None
+
 
 # ─── 분류 키워드 규칙 (16개 분류) ─────────────────────────────
 CLASSIFICATION_RULES = {
@@ -97,12 +127,13 @@ CLASSIFICATION_RULES = {
         "포장", "포장비", "패키징", "packaging",
     ],
     "경비-기타": [
-        "기타", "기타항목", "기타 비용",
+        "기타", "기타항목", "기타 비용", "물류", "물류비", "물류 비용",
     ],
     "경비-숙박/교통/항공": [
         "운송비", "출장비", "숙박비", "교통비", "안전관리비",
         "일반관리비", "보험료", "설치 경비", "현장 경비", "배송비",
-        "운반비", "관리비", "경비", "이동", "국내이동", "항공",
+        "운반비", "관리비", "이동", "국내이동", "항공",
+        "출입국", "교훈", "교육", "체류비",
     ],
     "마진": [
         "마진", "이윤", "profit", "margin", "영업이익", "이익률",
@@ -207,8 +238,22 @@ class AutoClassifier:
         #      단, "구매품"이 명시되어도 섹션이 전장/제어이면 구매품(전장/제어)으로 분류
         norm_hint = normalize_text(item.category_hint)
         is_elec_section = any(_match_kw(kw, norm_hint) for kw in ELEC_SECTION_KWS) if norm_hint else False
-        # 인건비 섹션 감지: 섹션 힌트에 "인건"이 있으면 인건비 그룹만 매칭
-        is_labor_section = "인건" in norm_hint if norm_hint else False
+
+        # 비용 성격(인건비/경비/재료비) 섹션 감지
+        # 하위 섹션("인건비 > 경비"의 "경비")이 있으면 하위 우선, 없으면 상위 기준
+        if norm_hint and ">" in norm_hint:
+            _hint_parts = [p.strip() for p in norm_hint.split(">") if p.strip()]
+            _sub_hint = _hint_parts[-1] if _hint_parts else ""
+            _top_hint = _hint_parts[0] if _hint_parts else ""
+        else:
+            _sub_hint = norm_hint
+            _top_hint = norm_hint
+
+        section_type = _cost_type(_sub_hint) or _cost_type(_top_hint)
+        # 계열(기구/전장·제어) 감지: A열(상위) 우선, 없으면 B열(하위) 기준
+        section_family = _family_type(_top_hint) or _family_type(_sub_hint)
+        # 인건비 섹션 감지 (하위 섹션이 인건비 계열일 때만)
+        is_labor_section = (section_type == "인건비")
 
         # 1-1b) 품명 계열 고정: 품명에 "기구"/"전장"/"제어"가 명시되면 계열 고정
         #       규격/비고의 "전장공임(부)" 같은 섹션 레벨 라벨이 품명의 계열을
@@ -287,9 +332,6 @@ class AutoClassifier:
         for category in COST_CATEGORIES:
             if category == "미분류":
                 continue
-            # 인건비 섹션: 인건비 그룹 외 카테고리 건너뜀
-            if is_labor_section and category not in LABOR_GROUP_CATS:
-                continue
             # 규칙 2-1: 전장/제어 섹션 내에서는 기구 구매품 점수 대폭 감점
             if category == "기구 구매품" and is_elec_section:
                 continue
@@ -311,6 +353,10 @@ class AutoClassifier:
                 # 구분 열에 매칭되면 보너스
                 if any(_match_kw(kw, norm_hint) for kw in matched):
                     score += 10.0
+                # 비용 성격 강제 게이트: B열(성격)이 있으면 해당 성격 그룹만 매칭
+                # → 인건비 섹션(B열=인건비)이면 경비 키워드(출입국/교훈 등) 무시
+                if section_type and _CAT_GROUP.get(category) not in (section_type, "기타"):
+                    continue
 
                 if score > best_score:
                     best_score = score
@@ -348,14 +394,48 @@ class AutoClassifier:
                 f"키워드 매칭 실패 → 섹션 '{item.category_hint}'(전장/제어) 기준 분류",
             )
 
-        # 3-3) 섹션 기반 폴백: "인건비" 섹션 내 항목 → 인건비-전장/제어 조립 (인건비 계열)
-        #      전조공임비/조립/부조 등 인건비 섹션 항목이 키워드에 안 걸려 미분류되는 것 방지
-        if best_category == "미분류" and "인건" in norm_hint:
+        # 3-3) 섹션 기반 폴백: "인건비" 섹션 내 항목 → 계열(기구/전장·제어) 기준 조립
+        #      A열 계열이 기구면 인건비-기구 조립, 전장/제어면 인건비-전장/제어 조립
+        if best_category == "미분류" and section_type == "인건비":
+            if section_family == "기구":
+                return (
+                    "인건비-기구 조립",
+                    45.0,
+                    [],
+                    f"키워드 매칭 실패 → 섹션 '{item.category_hint}'(인건비·기구) 기준 분류",
+                )
             return (
                 "인건비-전장/제어 조립",
                 45.0,
                 [],
                 f"키워드 매칭 실패 → 섹션 '{item.category_hint}'(인건비) 기준 분류",
+            )
+
+        # 3-4) 섹션 기반 폴백: "자재비/자체비" 섹션 내 항목 → 계열(기구/전장·제어) 기준 가공품
+        #      "자재리스트 참조" 등 자재비 섹션 항목이 키워드에 안 걸려 미분류되는 것 방지
+        if best_category == "미분류" and section_type == "재료비":
+            if section_family == "전장/제어":
+                return (
+                    "전장 가공품",
+                    45.0,
+                    [],
+                    f"키워드 매칭 실패 → 섹션 '{item.category_hint}'(자재비·전장/제어) 기준 분류",
+                )
+            return (
+                "기구 가공품",
+                45.0,
+                [],
+                f"키워드 매칭 실패 → 섹션 '{item.category_hint}'(자재비) 기준 분류",
+            )
+
+        # 3-5) 섹션 기반 폴백: "경비" 섹션 내 항목 → 경비-기타
+        #      물류비 등 구체적 경비 키워드에 안 걸린 경비 항목이 미분류되는 것 방지
+        if best_category == "미분류" and section_type == "경비":
+            return (
+                "경비-기타",
+                45.0,
+                [],
+                f"키워드 매칭 실패 → 섹션 '{item.category_hint}'(경비) 기준 분류",
             )
 
         # 4) 신뢰도 계산
