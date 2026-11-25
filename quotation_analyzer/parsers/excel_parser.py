@@ -134,12 +134,36 @@ class ExcelParser:
         return -1
 
     def map_columns(self, header_row: pd.Series) -> dict:
-        """헤더 행을 정규화된 열 이름으로 매핑"""
+        """헤더 행을 정규화된 열 이름으로 매핑.
+
+        2-pass 매핑:
+        1) canonical 이름 정확 일치 우선 (예: 헤더 "금액" → 금액)
+        2) alias 매칭 (예: 헤더 "합계" → 금액)
+
+        1-pass만 쓰면 앞선 열의 alias가 canonical 열을 가로채는 문제가 발생:
+        헤더 [..., '합계'(col7), ..., '금액'(col10)]에서 '합계'가 금액 alias로
+        먼저 매핑되어 실제 '금액' 열(col10)이 무시됨 → 금액이 수량×대수 값으로
+        읽혀 합산행 오감지(합산금액)로 이어짐.
+        """
         self.column_map = {}
+        headers = []
         for idx, value in header_row.items():
             if pd.isna(value):
                 continue
-            header = str(value).strip()
+            headers.append((idx, str(value).strip()))
+
+        # Pass 1: canonical 이름 정확 일치
+        for idx, header in headers:
+            norm = normalize_text(header)
+            if not norm:
+                continue
+            for canonical in COLUMN_ALIASES:
+                if canonical not in self.column_map and norm == canonical:
+                    self.column_map[canonical] = idx
+                    break
+
+        # Pass 2: alias 매칭 (Pass 1에서 매핑된 canonical 제외)
+        for idx, header in headers:
             for canonical, aliases in COLUMN_ALIASES.items():
                 if canonical not in self.column_map:
                     if match_column(header, aliases):
